@@ -572,8 +572,8 @@ static void processFETLayers(Cell& cell) {
 }
 
 static void resolveLabels(Cell& cell) {
-    const std::vector<std::string> gndLabels = {"GND", "VGND", "VSS", "gnd"};
-    const std::vector<std::string> pwrLabels = {"PWR", "VPWR", "VDD", "pwr"};
+    const std::vector<std::string> gndLabels = {"GND", "VGND", "VSS"};
+    const std::vector<std::string> pwrLabels = {"PWR", "VPWR", "VDPWR", "VDD"};
 
     for (const auto& text : cell.texts) {
         LayerID targetLid = getLayerID(text.layer, text.texttype);

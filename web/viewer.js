@@ -471,6 +471,12 @@ async function loadGDS(url) {
     document.getElementById('loading').innerText = 'Parsing GDS in worker...';
     document.getElementById('loading').style.display = 'block';
 
+    if (url.toLowerCase().split(/[?#]/)[0].endsWith('.oas')) {
+        log('ERROR: OAS format support is not implemented yet.');
+        document.getElementById('loading').innerText = 'Error: OAS support not implemented.';
+        return;
+    }
+
     if (worker) worker.terminate();
     worker = new Worker('web/gds_worker.js', { type: 'module' });
 

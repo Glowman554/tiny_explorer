@@ -55,7 +55,9 @@ const wasiShim = {
 async function runGdsTask(gdsUrl, options = {}) {
     logBuffer = "";
     const { returnGeometry = true } = options;
-    const isBrotli = gdsUrl.endsWith('.br');
+    const urlPath = gdsUrl.toLowerCase().split(/[?#]/)[0];
+    const isBrotli = urlPath.endsWith('.br');
+    const isGzip = urlPath.endsWith('.gz');
 
     try {
         // Initialize Brotli if needed
@@ -73,7 +75,16 @@ async function runGdsTask(gdsUrl, options = {}) {
         instance.exports.wasm_init();
 
         const response = await fetch(gdsUrl);
-        const reader = response.body.getReader();
+        let stream = response.body;
+
+        if (isGzip) {
+            if (typeof DecompressionStream === 'undefined') {
+                throw new Error("GZIP decompression (DecompressionStream) is not supported in this browser.");
+            }
+            stream = stream.pipeThrough(new DecompressionStream('gzip'));
+        }
+
+        const reader = stream.getReader();
 
         let totalBytes = 0;
         const startTime = performance.now();
