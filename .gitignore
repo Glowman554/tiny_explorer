@@ -1,0 +1,20 @@
+# Native binaries
+/parse_gds
+/fetsim
+
+# Processing logs and reports
+/logs/
+/report.html
+
+# Data and artifacts
+/gds/
+
+# OS and IDE specific
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary/Local leftovers
+*.log

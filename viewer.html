@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GDS Rect Viewer</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #111; color: #eee; font-family: sans-serif; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #ui {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(0, 0, 0, 0.8); padding: 10px;
+            border-radius: 8px; max-height: 90vh; overflow-y: auto;
+            border: 1px solid #444; pointer-events: auto;
+            min-width: 200px;
+        }
+        .control-group { margin-bottom: 10px; }
+        label { display: block; font-size: 12px; margin: 2px 0; cursor: pointer; }
+        select { width: 100%; background: #222; color: #eee; border: 1px solid #555; padding: 4px; }
+        button { background: #333; color: #eee; border: 1px solid #555; padding: 4px 8px; cursor: pointer; margin-top: 5px; width: 100%; }
+        button:hover { background: #444; }
+        h3 { margin: 0 0 10px 0; font-size: 14px; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        .layer-toggle { display: flex; align-items: center; }
+        .layer-toggle input { margin-right: 8px; }
+        .layer-color { width: 12px; height: 12px; display: inline-block; margin-right: 5px; border-radius: 2px; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 24px; pointer-events: none; }
+        #logContainer {
+            position: absolute; bottom: 10px; right: 10px;
+            background: rgba(0, 0, 0, 0.9); padding: 10px;
+            border-radius: 8px; border: 1px solid #444;
+            max-height: 300px; overflow-y: auto; width: 600px;
+            font-family: monospace; font-size: 11px;
+            color: #0f0; display: none; z-index: 1000;
+            pointer-events: auto;
+        }
+        #logContainer.visible { display: block; }
+        .log-entry { margin: 2px 0; border-bottom: 1px solid #222; padding-bottom: 2px; }
+    </style>
+</head>
+<body>
+    <div id="loading">Loading...</div>
+    <canvas id="glcanvas"></canvas>
+    <div id="ui">
+        <h3>Controls</h3>
+        <div class="control-group">
+            <button id="btnReset">Reset View</button>
+            <button id="btnToggleLog">Toggle Log</button>
+        </div>
+        <div class="control-group">
+            <label>Top 1000 Nets (by Area)</label>
+            <select id="netSelect" size="15" style="width:100%"></select>
+            <button id="btnClearNet">Clear Highlight</button>
+        </div>
+        <div class="control-group">
+            <label>Layer Opacity</label>
+            <input type="range" id="alphaSlider" min="0.1" max="1.0" step="0.1" value="0.8" style="width:100%">
+        </div>
+        <div class="control-group">
+            <label class="layer-toggle">
+                <input type="checkbox" id="boundaryToggle"> Draw Boundaries
+            </label>
+            <label class="layer-toggle">
+                <input type="checkbox" id="powerNetToggle" checked> Show Power Nets (0, 1)
+            </label>
+        </div>
+        <div class="control-group">
+            <h3>Layers</h3>
+            <button id="btnToggleAll">Toggle All Layers</button>
+            <div id="layerList"></div>
+        </div>
+
+    </div>
+    <div id="logContainer"></div>
+
+<script src="web/viewer.js"></script>
+</body>
+</html>

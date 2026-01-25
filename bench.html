@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GDS WASM Benchmark</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="web/style.css">
+    <style>
+        body { font-family: 'Outfit', sans-serif; background: #050a15; color: #fff; margin: 0; }
+        .bench-container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .header-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+        .btn-run { 
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple)); 
+            border: none; color: #fff; padding: 0.8rem 2rem; border-radius: 12px; 
+            font-weight: 800; cursor: pointer; font-size: 1.1rem;
+            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+            transition: all 0.2s;
+        }
+        .btn-run:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0, 212, 255, 0.5); }
+        .btn-run:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        
+        table { width: 100%; border-collapse: separate; border-spacing: 0 8px; margin-top: 2rem; }
+        th { text-align: left; padding: 1rem; color: var(--text-secondary); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; }
+        td { padding: 1rem; background: rgba(15, 23, 42, 0.7); border-bottom: 1px solid var(--card-border); }
+        td:first-child { border-radius: 12px 0 0 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--accent-cyan); }
+        td:last-child { border-radius: 0 12px 12px 0; }
+        
+        .progress-bar { height: 4px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; margin-top: 2rem; overflow: hidden; display: none; }
+        .progress-fill { height: 100%; background: var(--accent-cyan); width: 0%; transition: width 0.3s; }
+        
+        .badge-warn { background: rgba(255, 171, 0, 0.1); color: #ffab00; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+        .badge-ok { background: rgba(0, 212, 255, 0.1); color: var(--accent-cyan); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+        .status-cell { font-weight: 600; }
+        .numeric { text-align: right; font-family: 'JetBrains Mono', monospace; }
+        
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .pending { animation: pulse 1.5s infinite; color: var(--text-secondary); }
+
+        /* Log Modal */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(8px);
+            display: none; justify-content: center; align-items: center; z-index: 1000;
+        }
+        .modal-content {
+            background: #0f172a; border: 1px solid var(--card-border);
+            width: 80%; max-width: 900px; height: 70vh;
+            border-radius: 20px; display: flex; flex-direction: column;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+        }
+        .modal-header {
+            padding: 1.5rem; border-bottom: 1px solid var(--card-border);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .modal-header h2 { margin: 0; font-size: 1.2rem; color: var(--accent-cyan); }
+        .close-btn { 
+            background: none; border: none; color: #fff; font-size: 1.5rem; 
+            cursor: pointer; opacity: 0.7; transition: opacity 0.2s;
+        }
+        .close-btn:hover { opacity: 1; }
+        .log-viewport {
+            flex: 1; overflow-y: auto; padding: 1.5rem;
+            font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
+            color: #cbd5e1; line-height: 1.6; white-space: pre-wrap;
+            background: #050a15;
+        }
+        .btn-log {
+            background: rgba(255, 255, 255, 0.05); color: #fff;
+            border: 1px solid var(--card-border); padding: 0.4rem 0.8rem;
+            border-radius: 8px; font-size: 0.75rem; cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-log:hover { background: rgba(255, 255, 255, 0.1); border-color: var(--accent-cyan); }
+    </style>
+</head>
+<body>
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    
+    <div class="bench-container">
+        <header class="hero" style="padding: 2rem 0; text-align: left;">
+            <h1 class="title">WASM <span class="highlight">Benchmark</span></h1>
+            <p class="subtitle">Processing GDS files via Web Workers.</p>
+        </header>
+
+        <div class="header-actions">
+            <div id="status-text">Ready to benchmark 8 files.</div>
+            <button id="run-btn" class="btn-run">Run Benchmark</button>
+        </div>
+
+        <div class="progress-bar" id="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+        </div>
+
+        <table id="bench-table">
+            <thead>
+                <tr>
+                    <th>GDS File</th>
+                    <th class="numeric">Size (MB)</th>
+                    <th class="numeric">Rects</th>
+                    <th class="numeric">Wires</th>
+                    <th class="numeric">FETs</th>
+                    <th class="numeric">Time (ms)</th>
+                    <th class="numeric">Peak Mem</th>
+                    <th class="numeric">Warn</th>
+                    <th class="numeric">Err</th>
+                    <th>Status</th>
+                    <th style="text-align:center">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="bench-tbody">
+                <!-- Will be populated dynamicallly -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Modal for logs -->
+    <div id="log-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">Worker Logs</h2>
+                <button class="close-btn" id="close-modal">&times;</button>
+            </div>
+            <div id="log-viewport" class="log-viewport"></div>
+        </div>
+    </div>
+
+    <script>
+        const GDS_FILES = [
+            "gds/08/tt_um_2048_vga_game.gds",
+            "gds/08/tt_um_a1k0n_nyancat.gds",
+            "gds/08/tt_um_a1k0n_vgadonut.gds",
+            "gds/09/tt_um_a1k0n_nyancat.gds",
+            "gds/09/tt_um_oscillating_bones.gds",
+            "gds/09/tt_um_rejunity_atari2600.gds.br",
+            "gds/09/tt_um_znah_vga_ca.gds",
+            "gds/ihp-25a/tt_um_znah_vga_ca.gds"
+        ];
+
+        const runBtn = document.getElementById('run-btn');
+        const tbody = document.getElementById('bench-tbody');
+        const statusText = document.getElementById('status-text');
+        const progressBar = document.getElementById('progress-bar');
+        const progressFill = document.getElementById('progress-fill');
+
+        function formatNum(n) {
+            return n.toLocaleString();
+        }
+
+        function createRow(file) {
+            const row = document.createElement('tr');
+            row.id = `row-${file.replace(/\//g, '_')}`;
+            row.innerHTML = `
+                <td>${file}</td>
+                <td class="numeric">-</td>
+                <td class="numeric">-</td>
+                <td class="numeric">-</td>
+                <td class="numeric">-</td>
+                <td class="numeric">-</td>
+                <td class="numeric">-</td>
+                <td class="numeric">-</td>
+                <td class="numeric">-</td>
+                <td class="status-cell pending">Pending...</td>
+                <td style="text-align:center">-</td>
+            `;
+            return row;
+        }
+
+        const fileLogs = {};
+
+        function showLogs(file) {
+            const logs = fileLogs[file] || "No logs available for this task.";
+            document.getElementById('modal-title').textContent = `Logs: ${file.split('/').pop()}`;
+            document.getElementById('log-viewport').textContent = logs;
+            document.getElementById('log-modal').style.display = 'flex';
+        }
+
+        document.getElementById('close-modal').onclick = () => {
+            document.getElementById('log-modal').style.display = 'none';
+        };
+
+        window.onclick = (event) => {
+            if (event.target == document.getElementById('log-modal')) {
+                document.getElementById('log-modal').style.display = 'none';
+            }
+        };
+
+        async function runBenchmark() {
+            runBtn.disabled = true;
+            tbody.innerHTML = '';
+            GDS_FILES.forEach(file => tbody.appendChild(createRow(file)));
+            
+            progressBar.style.display = 'block';
+            progressFill.style.width = '0%';
+            
+            let completed = 0;
+            const total = GDS_FILES.length;
+            const queue = [...GDS_FILES];
+            const maxWorkers = Math.min(navigator.hardwareConcurrency || 4, total);
+            
+            statusText.textContent = `Running with ${maxWorkers} workers...`;
+
+            return new Promise(resolve => {
+                function startNext() {
+                    if (queue.length === 0) return;
+                    const file = queue.shift();
+                    const worker = new Worker('web/gds_worker.js', { type: 'module' });
+                    
+                    const row = document.getElementById(`row-${file.replace(/\//g, '_')}`);
+                    row.querySelector('.status-cell').textContent = 'Processing...';
+                    fileLogs[file] = "";
+
+                    worker.onmessage = (e) => {
+                        if (e.data.type === 'log') {
+                            fileLogs[file] += e.data.message;
+                        } else if (e.data.type === 'done') {
+                            const stats = e.data.stats;
+                            row.innerHTML = `
+                                <td>${file}</td>
+                                <td class="numeric">${(stats.totalBytes/1024/1024).toFixed(2)}</td>
+                                <td class="numeric">${formatNum(stats.flatRects)}</td>
+                                <td class="numeric">${formatNum(stats.netlistWires)}</td>
+                                <td class="numeric">${formatNum(stats.netlistFETs)}</td>
+                                <td class="numeric" style="color:var(--accent-cyan)">${stats.wallTime.toFixed(1)}</td>
+                                <td class="numeric">${stats.peakMemMB}MB</td>
+                                <td class="numeric">${stats.warnings > 0 ? `<span class="badge-warn">${stats.warnings}W</span>` : '0'}</td>
+                                <td class="numeric">${stats.errors > 0 ? `<span class="badge-error" style="background:rgba(239,68,68,0.1); color:#ef4444; padding:2px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold;">${stats.errors}E</span>` : '0'}</td>
+                                <td class="status-cell"><span class="badge-ok" style="${stats.errors > 0 ? 'background:rgba(239,68,68,0.1); color:#ef4444;' : ''}">${stats.errors > 0 ? 'ERROR' : 'OK'}</span></td>
+                                <td style="text-align:center; white-space: nowrap;">
+                                    <a href="viewer.html?file=${file}" target="_blank" class="btn-log" style="text-decoration:none; display:inline-block; margin-right:5px; border-color:var(--accent-cyan); color:var(--accent-cyan)">View</a>
+                                    <button class="btn-log" onclick="showLogs('${file}')">Logs</button>
+                                </td>
+                            `;
+                            worker.terminate();
+                            completed++;
+                            updateProgress();
+                        } else if (e.data.type === 'error') {
+                            row.querySelector('.status-cell').innerHTML = `<span class="badge-warn">ERROR</span>`;
+                            console.error(`Error in ${file}:`, e.data.message);
+                            fileLogs[file] += `\nERROR: ${e.data.message}`;
+                            row.querySelectorAll('td')[8].innerHTML = `<button class="btn-log" onclick="showLogs('${file}')">View Error</button>`;
+                            worker.terminate();
+                            completed++;
+                            updateProgress();
+                        }
+                    };
+
+                    function updateProgress() {
+                        progressFill.style.width = `${(completed / total) * 100}%`;
+                        if (completed === total) {
+                            statusText.textContent = `Completed ${total} files.`;
+                            runBtn.disabled = false;
+                            resolve();
+                        } else {
+                            startNext();
+                        }
+                    }
+
+                    worker.postMessage({ type: 'start', gdsUrl: new URL(file, window.location.href).href, options: { returnGeometry: false } });
+                }
+
+                for (let i = 0; i < maxWorkers; i++) {
+                    startNext();
+                }
+            });
+        }
+
+        runBtn.addEventListener('click', runBenchmark);
+        statusText.textContent = `Ready to benchmark ${GDS_FILES.length} files.`;
+    </script>
+</body>
+</html>

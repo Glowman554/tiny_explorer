@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FETSim VGA Monitor</title>
+    <style>
+        :root {
+            --bg: #0a0a0c;
+            --surface: #16161a;
+            --accent: #4f46e5;
+            --text: #e2e8f0;
+            --text-dim: #94a3b8;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            position: relative;
+            padding: 2rem;
+            background: rgba(22, 22, 26, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            max-width: 95vw;
+        }
+
+        .header {
+            margin-bottom: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 12px #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        .info {
+            font-size: 0.875rem;
+            color: var(--text-dim);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .canvas-wrapper {
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: inset 0 0 40px rgba(0,0,0,0.8);
+            position: relative;
+        }
+
+        canvas {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            image-rendering: pixelated;
+        }
+
+        .scanline-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%,
+                rgba(0, 0, 0, 0.1) 50%
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            opacity: 0.3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><div class="status-dot"></div> VGA Output Stream</h1>
+            <div class="info" id="stats">W: - H: -</div>
+        </div>
+        <div class="canvas-wrapper">
+            <canvas id="vgaCanvas"></canvas>
+            <!-- <div class="scanline-overlay"></div> -->
+        </div>
+    </div>
+
+    <script>
+        "use strict";
+
+        const canvas = document.getElementById('vgaCanvas');
+        const ctx = canvas.getContext('2d');
+        const stats = document.getElementById('stats');
+
+        async function fetchAndDraw() {
+            try {
+                const response = await fetch('vga.ppm?t=' + Date.now());
+                if (!response.ok) return;
+                
+                const buffer = await response.arrayBuffer();
+                const view = new Uint8Array(buffer);
+                
+                let pos = 0;
+                function nextToken() {
+                    while (pos < view.length && view[pos] <= 32) pos++;
+                    let start = pos;
+                    while (pos < view.length && view[pos] > 32) pos++;
+                    return new TextDecoder().decode(view.slice(start, pos));
+                }
+
+                const magic = nextToken();
+                if (magic !== 'P6') {
+                    console.error('Expected P6, got', magic);
+                    return;
+                }
+
+                const width = parseInt(nextToken());
+                const height = parseInt(nextToken());
+                const maxVal = parseInt(nextToken());
+
+                // Skip exactly one character (the newline/space after maxVal)
+                pos++;
+
+                const pixels = view.slice(pos);
+                if (pixels.length < width * height * 3) {
+                    console.warn('Incomplete pixel data');
+                    return;
+                }
+
+                if (canvas.width !== width || canvas.height !== height) {
+                    canvas.width = width;
+                    canvas.height = height;
+                }
+
+                stats.textContent = `RES: ${width}x${height} | UPDATED: ${new Date().toLocaleTimeString()}`;
+
+                const imageData = ctx.createImageData(width, height);
+                const data = imageData.data;
+                
+                // Optimized copy: PPM P6 (RGB) to Canvas (RGBA)
+                for (let i = 0, j = 0; i < width * height * 4; i += 4, j += 3) {
+                    data[i]     = pixels[j];
+                    data[i + 1] = pixels[j + 1];
+                    data[i + 2] = pixels[j + 2];
+                    data[i + 3] = 255;
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+            } catch (e) {
+                console.error('Fetch error:', e);
+            }
+        }
+
+        // Initial fetch
+        fetchAndDraw();
+        
+        // Refresh every second
+        setInterval(fetchAndDraw, 500);
+
+    </script>
+</body>
+</html>

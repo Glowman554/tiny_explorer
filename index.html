@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tiny Tapeout Explorer</title>
+    <meta name="description" content="Explore and search all projects from Tiny Tapeout shuttles.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="web/style.css">
+</head>
+<body>
+    <main class="container">
+
+        <header class="hero">
+            <h1 class="title">Tiny Tapeout <span class="highlight">Explorer</span></h1>
+            <p class="subtitle">Discover the amazing silicon projects from the Tiny Tapeout community.</p>
+        </header>
+
+        <section id="shuttle-selection" class="selection-section">
+            <h2 class="section-title">Select a Shuttle</h2>
+            <div class="table-container">
+                <table class="explorer-table" id="shuttle-table">
+                    <thead>
+                        <tr>
+                            <th>Shuttle</th>
+                            <th>Status</th>
+                            <th>Projects</th>
+                        </tr>
+                    </thead>
+                    <tbody id="shuttle-body">
+                        <!-- Shuttles will be loaded here -->
+                        <tr>
+                            <td colspan="3">
+                                <div class="loader-container">
+                                    <div class="spinner"></div>
+                                    <p>Fetching shuttles...</p>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </section>
+
+        <section id="project-section" class="project-section hidden">
+            <div class="sticky-controls">
+                <div class="controls-wrapper">
+                    <button id="back-button" class="back-btn">
+                        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                        Back
+                    </button>
+                    <div class="search-container">
+                        <svg class="search-icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <input type="text" id="project-search" placeholder="Search by name, author, or description..." autocomplete="off">
+                    </div>
+                </div>
+                <div id="shuttle-info" class="shuttle-info">
+                    <h2 id="selected-shuttle-name">Shuttle Name</h2>
+                    <span id="project-count" class="badge">0 projects</span>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table class="explorer-table" id="project-table">
+                    <thead>
+                        <tr>
+                            <th>Project</th>
+                            <th>Author</th>
+                            <th>Description</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="project-body">
+                        <!-- Projects will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+
+
+            <div id="no-results" class="no-results hidden">
+                <p>No projects match your search.</p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>Data provided by <a href="https://tinytapeout.com" target="_blank">Tiny Tapeout</a> Index</p>
+        <div style="margin-top: 1rem; opacity: 0.6; font-size: 0.8rem;">
+            <a href="bench.html" style="color: inherit; margin-right: 1rem;">WASM Benchmark</a>
+            <a href="report.html" style="color: inherit;">Processing Report</a>
+        </div>
+    </footer>
+
+    <script src="web/app.js"></script>
+</body>
+</html>
