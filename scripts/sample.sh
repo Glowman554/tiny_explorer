@@ -3,7 +3,7 @@
 g++ -std=c++17 -O3 -g fetsim.cpp -o fetsim
 
 # Run in background
-#./parse_gds gds/09_tt_um_rejunity_atari2600.gds > /dev/null &
+#./explorer gds/09_tt_um_rejunity_atari2600.gds > /dev/null &
 ./fetsim gds/09_tt_um_znah_vga_ca.txt > /dev/null &
 PID=$!
 sleep 1

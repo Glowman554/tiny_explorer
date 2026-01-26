@@ -9,8 +9,8 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 ROOT="$DIR/.."
 
 # Build the native parser
-echo "Compiling native parse_gds..."
-g++ -std=c++17 -O3 "$ROOT/src/parse_gds.cpp" -o "$ROOT/parse_gds"
+echo "Compiling native explorer..."
+g++ -std=c++17 -O3 "$ROOT/src/main.cpp" -o "$ROOT/explorer"
 
 # Build the WASM parser
 "$ROOT/scripts/build_wasm.sh"
@@ -29,7 +29,7 @@ rm -f "$ROOT/logs"/*.log
 run_parser() {
     local gds_file=$1
     local log_file=$2
-    "$ROOT/parse_gds" "$gds_file" > "$log_file" 2>&1
+    "$ROOT/explorer" "$gds_file" > "$log_file" 2>&1
 }
 
 # Run in parallel (backgrounding)

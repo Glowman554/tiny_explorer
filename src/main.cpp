@@ -1,4 +1,4 @@
-// g++ -std=c++17 -O3 parse_gds.cpp -o parse_gds && ./parse_gds gds/09_tt_um_znah_vga_ca.gds
+// g++ -std=c++17 -O3 main.cpp -o main && ./main gds/09_tt_um_znah_vga_ca.gds
 
 #include <array>
 #include <cstdio>

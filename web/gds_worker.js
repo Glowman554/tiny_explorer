@@ -65,7 +65,7 @@ async function runGdsTask(gdsUrl, options = {}) {
             await brotliInit();
         }
 
-        const wasmResponse = await fetch('parse_gds.wasm');
+        const wasmResponse = await fetch('explorer.wasm');
         const wasmBuffer = await wasmResponse.arrayBuffer();
         const { instance: wasmInstance } = await WebAssembly.instantiate(wasmBuffer, {
             wasi_snapshot_preview1: wasiShim
