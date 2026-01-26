@@ -140,12 +140,26 @@ struct Circuit {
         }
     }
 
+    int run_wave() {
+        if (dirty_wires.empty()) return 0;
+        const uint32_t stop = -1;
+        dirty_wires.push_back(stop);
+        int step_count = 0;
+        while (dirty_wires.front() != stop) {
+            step();
+            ++step_count;
+        }
+        dirty_wires.pop_front(); // remove stop
+        return step_count;
+    }
 
     bool step() {
         uint32_t start_wire = -1;
         uint8_t* wire_states = wire_data.data();
         while (!dirty_wires.empty()) {
-            uint32_t wire = dirty_wires.pop_front();
+            uint32_t wire = dirty_wires.front();
+            if (wire == (uint32_t)-1) break;
+            dirty_wires.pop_front();
             if ((wire_states[wire] & S_DIRTY)) {
                 start_wire = wire;
                 break;

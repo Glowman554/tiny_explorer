@@ -1,0 +1,7 @@
+CompileFlags:
+  Add: [-std=c++17, -I.]
+---
+If:
+  PathMatch: .*\.h
+CompileFlags:
+  Add: [-xc++-header]

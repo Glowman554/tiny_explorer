@@ -97,7 +97,6 @@ async function runGdsTask(gdsUrl, options = {}) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            let dataToParse = value;
             if (isBrotli) {
                 // Decompress chunk
                 let input = value;
