@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <vector>
@@ -111,6 +112,8 @@ struct Circuit {
     // Queue of wires that changed state and need processing.
     Queue dirty_wires;
 
+    size_t fet_n() const {return fet_on.size();}
+    size_t wire_n() const {return wire_data.size();}
 
     void set_input(uint32_t wire, uint8_t val) {
         if ((wire_data[wire] & V_MASK) == val) return;

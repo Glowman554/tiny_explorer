@@ -57,8 +57,7 @@ async function runGdsTask(gdsUrl, options = {}) {
     const { returnGeometry = true } = options;
     const urlPath = gdsUrl.toLowerCase().split(/[?#]/)[0];
     const isBrotli = urlPath.endsWith('.br');
-    const isGzip = urlPath.endsWith('.gz');
-
+    
     try {
         // Initialize Brotli if needed
         if (isBrotli) {
@@ -76,11 +75,7 @@ async function runGdsTask(gdsUrl, options = {}) {
 
         const response = await fetch(gdsUrl);
         let stream = response.body;
-
-        if (isGzip) {
-            if (typeof DecompressionStream === 'undefined') {
-                throw new Error("GZIP decompression (DecompressionStream) is not supported in this browser.");
-            }
+        if (urlPath.endsWith('.gz')) {
             stream = stream.pipeThrough(new DecompressionStream('gzip'));
         }
 
@@ -88,10 +83,26 @@ async function runGdsTask(gdsUrl, options = {}) {
 
         let totalBytes = 0;
         const startTime = performance.now();
+
+        const brotliStream = isBrotli ? new DecompressStream() : null;
+
         let chunkPtr = 0;
         let chunkCap = 0;
 
-        const brotliStream = isBrotli ? new DecompressStream() : null;
+        function pushToParser(data) {
+            const len = data.length;
+            totalBytes += len;
+
+            if (len > chunkCap) {
+                if (chunkPtr) instance.exports.wasm_free(chunkPtr);
+                chunkCap = Math.max(len, 256 * 1024);
+                chunkPtr = instance.exports.wasm_malloc(chunkCap);
+            }
+
+            const wasmBuf = new Uint8Array(instance.exports.memory.buffer, chunkPtr, len);
+            wasmBuf.set(data);
+            instance.exports.wasm_push_chunk(chunkPtr, len);
+        }
 
         while (true) {
             const { done, value } = await reader.read();
@@ -115,21 +126,6 @@ async function runGdsTask(gdsUrl, options = {}) {
             } else {
                 pushToParser(value);
             }
-        }
-
-        function pushToParser(data) {
-            const len = data.length;
-            totalBytes += len;
-
-            if (len > chunkCap) {
-                if (chunkPtr) instance.exports.wasm_free(chunkPtr);
-                chunkCap = Math.max(len, 256 * 1024);
-                chunkPtr = instance.exports.wasm_malloc(chunkCap);
-            }
-
-            const wasmBuf = new Uint8Array(instance.exports.memory.buffer, chunkPtr, len);
-            wasmBuf.set(data);
-            instance.exports.wasm_push_chunk(chunkPtr, len);
         }
 
         if (chunkPtr) instance.exports.wasm_free(chunkPtr);
