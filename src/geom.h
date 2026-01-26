@@ -265,3 +265,26 @@ void queryBVH(const std::vector<BVHNode>& nodes, const std::vector<Rect>& allRec
     if (nodes.empty()) return;
     queryBVHRecursive(nodes, 0, allRects, q, visitor, pred);
 }
+
+template<typename Rect>
+int optimizeRects(std::vector<Rect> & input, std::vector<Rect> & output) {
+    if (input.empty()) return 0;
+
+    std::vector<BVHNode> nodes;
+    std::vector<uint8_t> discarded(input.size(), 0);
+    buildLayerBVH(input, 0, (uint32_t)input.size(), nodes);
+
+    int totalDiscarded = 0;
+    for (size_t i = 0; i < input.size(); ++i) {
+        queryBVH(nodes, input, input[i], [&](int j) {
+            if (i == (size_t)j || discarded[j]) return;
+            if (contains(input[j], input[i])) discarded[i] = true;
+        }, overlaps);
+        if (discarded[i]) totalDiscarded++;
+    }
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        if (!discarded[i]) output.push_back(input[i]);
+    }
+    return totalDiscarded;
+}

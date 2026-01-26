@@ -136,25 +136,10 @@ static void optimizeFlattenedGeometry(std::vector<RectWire> rawLayers[L_COUNT], 
 
     for (int l = 0; l < L_COUNT; ++l) {
         out.layerOffsets[l] = (uint32_t)out.rectData.size();
+        
         auto& rects = rawLayers[l];
-        if (rects.empty()) continue;
         totalBefore += rects.size();
-
-        std::vector<BVHNode> nodes;
-        buildLayerBVH(rects, 0, (uint32_t)rects.size(), nodes);
-
-        std::vector<bool> discarded(rects.size(), false);
-        for (size_t i = 0; i < rects.size(); ++i) {
-            queryBVH(nodes, rects, rects[i], [&](int j) {
-                if (i == (size_t)j || discarded[j]) return;
-                if (contains(rects[j], rects[i])) discarded[i] = true;
-            }, overlaps);
-            if (discarded[i]) totalDiscarded++;
-        }
-
-        for (size_t i = 0; i < rects.size(); ++i) {
-            if (!discarded[i]) out.rectData.push_back(rects[i]);
-        }
+        totalDiscarded += optimizeRects(rects, out.rectData);
     }
     out.layerOffsets[L_COUNT] = (uint32_t)out.rectData.size();
     if (totalDiscarded) printf("discarded %zu of %zu rects\n", totalDiscarded, totalBefore);
