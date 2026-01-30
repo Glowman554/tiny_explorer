@@ -10,7 +10,8 @@
     <link rel="stylesheet" href="web/style.css">
     <style>
         body { font-family: 'Outfit', sans-serif; background: #050a15; color: #fff; margin: 0; }
-        .bench-container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .bench-container { width: 98%; max-width: 1600px; margin: 0 auto; padding: 2rem; }
+        .table-wrapper { width: 100%; overflow-x: auto; margin-top: 2rem; border-radius: 12px; border: 1px solid var(--card-border); }
         .header-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
         .btn-run { 
             background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple)); 
@@ -22,7 +23,7 @@
         .btn-run:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0, 212, 255, 0.5); }
         .btn-run:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         
-        table { width: 100%; border-collapse: separate; border-spacing: 0 8px; margin-top: 2rem; }
+        table { width: 100%; border-collapse: separate; border-spacing: 0 8px; min-width: 1200px; }
         th { text-align: left; padding: 1rem; color: var(--text-secondary); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; }
         td { padding: 1rem; background: rgba(15, 23, 42, 0.7); border-bottom: 1px solid var(--card-border); }
         td:first-child { border-radius: 12px 0 0 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--accent-cyan); }
@@ -95,26 +96,30 @@
             <div class="progress-fill" id="progress-fill"></div>
         </div>
 
-        <table id="bench-table">
-            <thead>
-                <tr>
-                    <th>GDS File</th>
-                    <th class="numeric">Size (MB)</th>
-                    <th class="numeric">Rects</th>
-                    <th class="numeric">Wires</th>
-                    <th class="numeric">FETs</th>
-                    <th class="numeric">Time (ms)</th>
-                    <th class="numeric">Peak Mem</th>
-                    <th class="numeric">Warn</th>
-                    <th class="numeric">Err</th>
-                    <th>Status</th>
-                    <th style="text-align:center">Actions</th>
-                </tr>
-            </thead>
-            <tbody id="bench-tbody">
-                <!-- Will be populated dynamicallly -->
-            </tbody>
-        </table>
+        <div class="table-wrapper">
+            <table id="bench-table">
+                <thead>
+                    <tr>
+                        <th>GDS File</th>
+                        <th class="numeric">Size (MB)</th>
+                        <th class="numeric">Rects</th>
+                        <th class="numeric">Wires</th>
+                        <th class="numeric">FETs</th>
+                        <th class="numeric">Load (ms)</th>
+                        <th class="numeric">Proc (ms)</th>
+                        <th class="numeric">Total (ms)</th>
+                        <th class="numeric">Peak Mem</th>
+                        <th class="numeric">Warn</th>
+                        <th class="numeric">Err</th>
+                        <th>Status</th>
+                        <th style="text-align:center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="bench-tbody">
+                    <!-- Will be populated dynamicallly -->
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <!-- Modal for logs -->
@@ -130,14 +135,17 @@
 
     <script>
         const GDS_FILES = [
-            "gds/08/tt_um_2048_vga_game.gds",
-            "gds/08/tt_um_a1k0n_nyancat.gds",
-            "gds/08/tt_um_a1k0n_vgadonut.gds",
-            "gds/09/tt_um_a1k0n_nyancat.gds",
-            "gds/09/tt_um_oscillating_bones.gds",
-            "gds/09/tt_um_rejunity_atari2600.gds.br",
-            "gds/09/tt_um_znah_vga_ca.gds",
-            "gds/ihp-25a/tt_um_znah_vga_ca.gds"
+            "gds/08/tt_um_2048_vga_game.gds:sky130A",
+            "gds/08/tt_um_a1k0n_nyancat.gds:sky130A",
+            "gds/08/tt_um_a1k0n_vgadonut.gds:sky130A",
+            "gds/09/tt_um_a1k0n_nyancat.gds:sky130A",
+            "gds/09/tt_um_oscillating_bones.gds:sky130A",
+            "gds/09/tt_um_rejunity_atari2600.gds.br:sky130A",
+            "gds/09/tt_um_znah_vga_ca.gds:sky130A",
+            "gds/ihp-25a/tt_um_znah_vga_ca.gds:ihp-sg13g2",
+            "gds/sky-25b/tt_um_vga_clock.oas:sky130A",
+            "gds/sky-25b/tt_um_pongsagon_tinygpu_v2.oas:sky130A",
+            "gds/gf-0p2/tt_um_2048_vga_game.oas:gf180mcuD",
         ];
 
         const runBtn = document.getElementById('run-btn');
@@ -155,6 +163,9 @@
             row.id = `row-${file.replace(/\//g, '_')}`;
             row.innerHTML = `
                 <td>${file}</td>
+                <td class="numeric">-</td>
+                <td class="numeric">-</td>
+                <td class="numeric">-</td>
                 <td class="numeric">-</td>
                 <td class="numeric">-</td>
                 <td class="numeric">-</td>
@@ -218,22 +229,25 @@
                             fileLogs[file] += e.data.message;
                         } else if (e.data.type === 'done') {
                             const stats = e.data.stats;
-                            row.innerHTML = `
-                                <td>${file}</td>
-                                <td class="numeric">${(stats.totalBytes/1024/1024).toFixed(2)}</td>
-                                <td class="numeric">${formatNum(stats.flatRects)}</td>
-                                <td class="numeric">${formatNum(stats.netlistWires)}</td>
-                                <td class="numeric">${formatNum(stats.netlistFETs)}</td>
-                                <td class="numeric" style="color:var(--accent-cyan)">${stats.wallTime.toFixed(1)}</td>
-                                <td class="numeric">${stats.peakMemMB}MB</td>
-                                <td class="numeric">${stats.warnings > 0 ? `<span class="badge-warn">${stats.warnings}W</span>` : '0'}</td>
-                                <td class="numeric">${stats.errors > 0 ? `<span class="badge-error" style="background:rgba(239,68,68,0.1); color:#ef4444; padding:2px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold;">${stats.errors}E</span>` : '0'}</td>
-                                <td class="status-cell"><span class="badge-ok" style="${stats.errors > 0 ? 'background:rgba(239,68,68,0.1); color:#ef4444;' : ''}">${stats.errors > 0 ? 'ERROR' : 'OK'}</span></td>
-                                <td style="text-align:center; white-space: nowrap;">
-                                    <a href="viewer.html?file=${file}" target="_blank" class="btn-log" style="text-decoration:none; display:inline-block; margin-right:5px; border-color:var(--accent-cyan); color:var(--accent-cyan)">View</a>
-                                    <button class="btn-log" onclick="showLogs('${file}')">Logs</button>
-                                </td>
-                            `;
+                            const [fUrl, fPdk] = file.split(':');
+                                row.innerHTML = `
+                                    <td>${file}</td>
+                                    <td class="numeric">${(stats.totalBytes/1024/1024).toFixed(2)}</td>
+                                    <td class="numeric">${formatNum(stats.flatRects)}</td>
+                                    <td class="numeric">${formatNum(stats.netlistWires)}</td>
+                                    <td class="numeric">${formatNum(stats.netlistFETs)}</td>
+                                    <td class="numeric">${stats.loadTime.toFixed(1)}</td>
+                                    <td class="numeric" style="color:var(--accent-cyan)">${stats.procTime.toFixed(1)}</td>
+                                    <td class="numeric">${stats.totalTime.toFixed(1)}</td>
+                                    <td class="numeric">${stats.peakMemMB}MB</td>
+                                    <td class="numeric">${stats.warnings > 0 ? `<span class="badge-warn">${stats.warnings}W</span>` : '0'}</td>
+                                    <td class="numeric">${stats.errors > 0 ? `<span class="badge-error" style="background:rgba(239,68,68,0.1); color:#ef4444; padding:2px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold;">${stats.errors}E</span>` : '0'}</td>
+                                    <td class="status-cell"><span class="badge-ok" style="${stats.errors > 0 ? 'background:rgba(239,68,68,0.1); color:#ef4444;' : ''}">${stats.errors > 0 ? 'ERROR' : 'OK'}</span></td>
+                                    <td style="text-align:center; white-space: nowrap;">
+                                        <a href="viewer.html?file=${fUrl}${fPdk ? '&pdk='+fPdk : ''}" target="_blank" class="btn-log" style="text-decoration:none; display:inline-block; margin-right:5px; border-color:var(--accent-cyan); color:var(--accent-cyan)">View</a>
+                                        <button class="btn-log" onclick="showLogs('${file}')">Logs</button>
+                                    </td>
+                                `;
                             worker.terminate();
                             completed++;
                             updateProgress();
@@ -259,7 +273,13 @@
                         }
                     }
 
-                    worker.postMessage({ type: 'start', gdsUrl: new URL(file, window.location.href).href, options: { returnGeometry: false } });
+                    const [fUrl, fPdk] = file.split(':');
+                    worker.postMessage({ 
+                        type: 'start', 
+                        gdsUrl: new URL(fUrl, window.location.href).href, 
+                        pdk: fPdk,
+                        options: { returnGeometry: false } 
+                    });
                 }
 
                 for (let i = 0; i < maxWorkers; i++) {

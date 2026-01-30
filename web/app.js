@@ -169,6 +169,7 @@ function renderProjects(projects) {
 }
 
 
+
 // Open GDS Viewer with template-based link and Brotli check
 async function openGdsViewer(macro) {
     if (!selectedShuttle) return;
@@ -182,19 +183,20 @@ async function openGdsViewer(macro) {
     }
 
     const brUrl = baseUrl + '.br';
+    const pdk = selectedShuttle.pdk || '';
     
     // Check if Brotli compressed version exists first
     try {
         const res = await fetch(brUrl, { method: 'HEAD' });
         if (res.ok) {
-            window.open(`viewer.html?file=${brUrl}`, '_blank');
+            window.open(`viewer.html?file=${encodeURIComponent(brUrl)}&pdk=${pdk}`, '_blank');
             return;
         }
     } catch (e) {
         console.warn('.br check failed:', e);
     }
     
-    window.open(`viewer.html?file=${baseUrl}`, '_blank');
+    window.open(`viewer.html?file=${encodeURIComponent(baseUrl)}&pdk=${pdk}`, '_blank');
 }
 
 // Handle Search

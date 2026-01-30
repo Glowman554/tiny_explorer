@@ -10,6 +10,9 @@ GDS_TARGETS=(
     "09:tt_um_rejunity_atari2600.gds.br"
     "09:tt_um_a1k0n_nyancat.gds"
     "ihp-25a:tt_um_znah_vga_ca.gds"
+    "sky-25b:tt_um_vga_clock.oas"
+    "sky-25b:tt_um_pongsagon_tinygpu_v2.oas"
+    "gf-0p2:tt_um_2048_vga_game.oas"
 )
 
 # Base folder for downloads
@@ -23,8 +26,9 @@ for TARGET in "${GDS_TARGETS[@]}"; do
     REPO="${TARGET%%:*}"
     FILENAME="${TARGET##*:}"
     
-    # Extract macro name from filename (removes .gds or .gds.br)
+    # Extract macro name from filename (removes .gds, .gds.br, or .oas)
     MACRO="${FILENAME%.gds*}"
+    MACRO="${MACRO%.oas*}"
     
     # Construct target directory
     TARGET_DIR="${DOWNLOAD_BASE}/${REPO}"

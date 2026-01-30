@@ -86,26 +86,25 @@ const LAYER_COLORS = [
     [0.3, 0.1, 0.2, 1.0], // 1: NWELL (pale yellow)
     [0.2, 0.8, 0.2, 1.0], // 2: DIFF (skip/invisible usually)
     [0.0, 0.0, 0.0, 0.0], // 3: CHANNEL (skip/invisible usually)
-    [0.1, 0.5, 0.1, 1.0], // 4: TERMINAL (skip/invisible usually)
-    [0.2, 0.6, 0.2, 1.0], // 5: N_TERM (lime green)
-    [0.8, 0.8, 0.2, 1.0], // 6: P_TERM (yellow-ish)
-    [0.8, 0.2, 0.2, 1.0], // 7: POLY (red)
-    [0.5, 0.5, 0.5, 1.0], // 8: LICON (grey)
-    [0.3, 0.3, 0.9, 1.0], // 9: LI1 (blue)
-    [0.6, 0.6, 0.6, 1.0], // 10: MCON
-    [0.7, 0.4, 0.8, 1.0], // 11: MET1 (purple)
-    [0.8, 0.8, 0.8, 1.0], // 12: VIA1
-    [0.4, 0.8, 0.8, 1.0], // 13: MET2 (cyan)
-    [0.9, 0.9, 0.9, 1.0], // 14: VIA2
-    [0.8, 0.8, 0.2, 1.0], // 15: MET3
-    [0.9, 0.9, 0.9, 1.0], // 16: VIA3
-    [0.2, 0.6, 0.2, 1.0], // 17: MET4
-    [0.9, 0.9, 0.9, 1.0], // 18: VIA4
-    [0.6, 0.2, 0.6, 1.0], // 19: MET5
+    [0.2, 0.6, 0.2, 1.0], // 4: N_TERM (lime green)
+    [0.8, 0.8, 0.2, 1.0], // 5: P_TERM (yellow-ish)
+    [0.8, 0.2, 0.2, 1.0], // 6: POLY (red)
+    [0.5, 0.5, 0.5, 1.0], // 7: LICON (grey)
+    [0.3, 0.3, 0.9, 1.0], // 8: LI1 (blue)
+    [0.6, 0.6, 0.6, 1.0], // 9: MCON
+    [0.7, 0.4, 0.8, 1.0], // 10: MET1 (purple)
+    [0.8, 0.8, 0.8, 1.0], // 11: VIA1
+    [0.4, 0.8, 0.8, 1.0], // 12: MET2 (cyan)
+    [0.9, 0.9, 0.9, 1.0], // 13: VIA2
+    [0.8, 0.8, 0.2, 1.0], // 14: MET3
+    [0.9, 0.9, 0.9, 1.0], // 15: VIA3
+    [0.2, 0.6, 0.2, 1.0], // 16: MET4
+    [0.9, 0.9, 0.9, 1.0], // 17: VIA4
+    [0.6, 0.2, 0.6, 1.0], // 18: MET5
 ];
 
 const LAYER_NAMES = [
-    "ERRORS", "NWELL", "DIFF", "CHANNEL", "TERMINAL", "N_TERM", "P_TERM", "POLY", "LICON", 
+    "ERRORS", "NWELL", "DIFF", "CHANNEL", "N_TERM", "P_TERM", "POLY", "LICON", 
     "LI1", "MCON", "MET1", "VIA1", "MET2", "VIA2", "MET3", "VIA3", "MET4", "VIA4", "MET5"
 ];
 
@@ -321,6 +320,19 @@ function initWebGL() {
     document.getElementById('alphaSlider').oninput = () => requestAnimationFrame(render);
     document.getElementById('boundaryToggle').onchange = () => requestAnimationFrame(render);
     document.getElementById('powerNetToggle').onchange = () => requestAnimationFrame(render);
+
+    document.getElementById('btnLogTab').onclick = () => {
+        document.getElementById('logContainer').classList.toggle('visible');
+    };
+
+    document.getElementById('btnReset').onclick = () => {
+        if (!isLoaded) return;
+        view.pan = 0; view.tilt = 0; view.log2zoom = 0;
+        view.centerX = (minX + maxX) / 2;
+        view.centerY = (minY + maxY) / 2;
+        updateBaseScale();
+        requestAnimationFrame(render);
+   };
 }
 
 function createShader(gl, type, source) {
@@ -453,29 +465,22 @@ function render() {
 
 function log(msg) {
     const logContainer = document.getElementById('logContainer');
-    const div = document.createElement('div');
-    div.className = 'log-entry';
-    div.textContent = msg;
-    logContainer.appendChild(div);
+    logContainer.textContent += msg;
     if (logContainer.classList.contains('visible')) {
         logContainer.scrollTop = logContainer.scrollHeight;
     }
 }
 
-async function loadGDS(url) {
+async function loadGDS(url, pdk) {
     const logContainer = document.getElementById('logContainer');
-    logContainer.innerHTML = '';
+    logContainer.textContent = '';
     logContainer.classList.add('visible');
-    log(`Loading GDS: ${url}`);
+    log(`Loading GDS: ${url} (PDK: ${pdk || 'default'})\n`);
 
     document.getElementById('loading').innerText = 'Parsing GDS in worker...';
     document.getElementById('loading').style.display = 'block';
 
-    if (url.toLowerCase().split(/[?#]/)[0].endsWith('.oas')) {
-        log('ERROR: OAS format support is not implemented yet.');
-        document.getElementById('loading').innerText = 'Error: OAS support not implemented.';
-        return;
-    }
+    // OASIS support is now enabled via GDSTK integration
 
     if (worker) worker.terminate();
     worker = new Worker('web/gds_worker.js', { type: 'module' });
@@ -489,12 +494,12 @@ async function loadGDS(url) {
             alert('Error parsing GDS: ' + data.message);
         } else if (data.type === 'done') {
             const stats = data.stats;
-            log('='.repeat(30));
-            log('Parse Complete!');
-            log(`Total Bytes Src: ${stats.totalBytes.toLocaleString()}`);
-            log(`Total Time: ${stats.totalTime.toFixed(2)} ms`);
-            log(`WASM Memory: ${stats.memMB} MB`);
-            log('='.repeat(30));
+            log('='.repeat(30) + '\n');
+            log('Parse Complete!\n');
+            log(`Total Bytes Src: ${stats.totalBytes.toLocaleString()}\n`);
+            log(`Total Time: ${stats.totalTime.toFixed(2)} ms\n`);
+            log(`WASM Memory: ${stats.memMB} MB\n`);
+            log('='.repeat(30) + '\n');
             processParsedData(stats);
             setTimeout(() => {
                 document.getElementById('logContainer').classList.remove('visible');
@@ -502,7 +507,8 @@ async function loadGDS(url) {
         }
     };
 
-    worker.postMessage({ type: 'start', gdsUrl: new URL(url, window.location.href).href });
+    const normalizedUrl = new URL(url, window.location.href).href;
+    worker.postMessage({ type: 'start', gdsUrl: normalizedUrl, pdk: pdk });
 }
 
 let worker;
@@ -510,7 +516,7 @@ function processParsedData(stats) {
     const { rectData, layerOffsets } = stats;
     
     if (!rectData || !layerOffsets) {
-        log("ERROR: No geometry data received from worker. GDS might be empty or malformed.");
+        log("ERROR: No geometry data received from worker. GDS might be empty or malformed.\n");
         document.getElementById('loading').innerText = 'Error: No geometry data.';
         return;
     }
@@ -560,22 +566,42 @@ function processParsedData(stats) {
     
 
     // Top 1000 Nets by Area
-    const sortedNets = Object.entries(netAreas)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 1000);
+    let sortedNets = Object.entries(netAreas)
+        .sort((a, b) => b[1] - a[1]);
     
     const select = document.getElementById('netSelect');
-    select.innerHTML = ''; // Clear existing
-    sortedNets.forEach(([net, area]) => {
-        const opt = document.createElement('option');
-        opt.value = net;
-        opt.innerText = `Net ${net} (Area: ${area.toLocaleString()})`;
-        select.appendChild(opt);
-    });
+    const search = document.getElementById('netSearch');
+
+    function updateNetList() {
+        const query = search.value.toLowerCase();
+        select.innerHTML = '';
+        let count = 0;
+        for (const [net, area] of sortedNets) {
+            const label = `Net ${net} (Area: ${area.toLocaleString()})`;
+            if (label.toLowerCase().includes(query)) {
+                const opt = document.createElement('option');
+                opt.value = net;
+                opt.innerText = label;
+                select.appendChild(opt);
+                count++;
+                if (count >= 1000) break; // Limit to 1000 visible
+            }
+        }
+    }
+
+    search.oninput = updateNetList;
+    updateNetList();
 
     document.getElementById('btnClearNet').onclick = () => {
         select.value = -1;
+        search.value = '';
+        updateNetList();
         highlightNet = -1;
+        requestAnimationFrame(render);
+    };
+
+    select.onchange = (e) => {
+        highlightNet = parseFloat(e.target.value);
         requestAnimationFrame(render);
     };
 
@@ -594,8 +620,8 @@ function processParsedData(stats) {
     updateLayerHeights();
     updateBaseScale();
 
-    // Now that heights are known, add layer controls in top-to-bottom order
-    sortedLids.sort((a, b) => (layerSpecs[b]?.z || 0) - (layerSpecs[a]?.z || 0));
+    // Now that heights are known, add layer controls in lid-descending order
+    sortedLids.sort((a, b) => Number(b) - Number(a));
     sortedLids.forEach(lid => {
         const ui = addLayerControl(lid);
         layers[lid].input = ui.input;
@@ -605,24 +631,6 @@ function processParsedData(stats) {
     document.getElementById('loading').style.display = 'none';
     updateLayerUI();
     requestAnimationFrame(render);
-    
-    document.getElementById('btnToggleLog').onclick = () => {
-        document.getElementById('logContainer').classList.toggle('visible');
-    };
-    
-    // Wire up UI
-    document.getElementById('btnReset').onclick = () => {
-         view.pan = 0; view.tilt = 0; view.log2zoom = 0;
-         view.centerX = (minX + maxX) / 2;
-         view.centerY = (minY + maxY) / 2;
-         updateBaseScale();
-         requestAnimationFrame(render);
-    };
-    
-    select.onchange = (e) => {
-        highlightNet = parseFloat(e.target.value);
-        requestAnimationFrame(render);
-    };
 }
 
 function addLayerControl(lid) {
@@ -683,8 +691,9 @@ function updateLayerUI() {
 initWebGL();
 const params = new URLSearchParams(window.location.search);
 const file = params.get('file');
+const pdk = params.get('pdk');
 if (file) {
-    loadGDS(file);
+    loadGDS(file, pdk);
 } else {
     document.getElementById('loading').innerText = 'No file specified. Use ?file=...';
 }

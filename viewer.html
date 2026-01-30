@@ -25,16 +25,43 @@
         .layer-color { width: 12px; height: 12px; display: inline-block; margin-right: 5px; border-radius: 2px; }
         #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 24px; pointer-events: none; }
         #logContainer {
-            position: absolute; bottom: 10px; right: 10px;
+            position: absolute; bottom: 45px; right: 10px;
             background: rgba(0, 0, 0, 0.9); padding: 10px;
             border-radius: 8px; border: 1px solid #444;
-            max-height: 300px; overflow-y: auto; width: 600px;
+            max-height: 300px; overflow-y: auto; overflow-x: auto;
+            width: 600px;
             font-family: monospace; font-size: 11px;
-            color: #0f0; display: none; z-index: 1000;
+            white-space: pre;
+            color: #0f0; z-index: 1000;
             pointer-events: auto;
+            opacity: 0;
+            visibility: hidden;
+            transform: scale(0);
+            transform-origin: bottom right;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), 
+                        opacity 0.4s ease, 
+                        visibility 0s 0.4s;
         }
-        #logContainer.visible { display: block; }
-        .log-entry { margin: 2px 0; border-bottom: 1px solid #222; padding-bottom: 2px; }
+        #logContainer.visible { 
+            opacity: 1; 
+            visibility: visible; 
+            transform: scale(1);
+            transition: transform 0.3s cubic-bezier(0.1, 0.9, 0.2, 1), 
+                        opacity 0.3s ease, 
+                        visibility 0s;
+        }
+        #netSearch {
+            width: 100%; background: #222; color: #eee; border: 1px solid #555; 
+            padding: 4px; margin-bottom: 5px; box-sizing: border-box;
+        }
+        #alphaSlider { width: 100%; }
+        #btnLogTab {
+            position: absolute; bottom: 10px; right: 10px; width: auto; z-index: 1001; 
+            padding: 4px 10px; background: rgba(0,0,0,0.8); border: 1px solid #444; 
+            border-radius: 4px; color: #0f0; font-family: monospace; font-size: 12px; 
+            font-weight: bold; cursor: pointer;
+        }
+        #btnLogTab:hover { background: rgba(30, 30, 30, 0.9); border-color: #666; }
     </style>
 </head>
 <body>
@@ -44,16 +71,16 @@
         <h3>Controls</h3>
         <div class="control-group">
             <button id="btnReset">Reset View</button>
-            <button id="btnToggleLog">Toggle Log</button>
         </div>
         <div class="control-group">
-            <label>Top 1000 Nets (by Area)</label>
+            <label>Nets (by Area)</label>
+            <input type="text" id="netSearch" placeholder="Search net...">
             <select id="netSelect" size="15" style="width:100%"></select>
             <button id="btnClearNet">Clear Highlight</button>
         </div>
         <div class="control-group">
             <label>Layer Opacity</label>
-            <input type="range" id="alphaSlider" min="0.1" max="1.0" step="0.1" value="0.8" style="width:100%">
+            <input type="range" id="alphaSlider" min="0.1" max="1.0" step="0.1" value="0.8">
         </div>
         <div class="control-group">
             <label class="layer-toggle">
@@ -70,7 +97,8 @@
         </div>
 
     </div>
-    <div id="logContainer"></div>
+    <pre id="logContainer"></pre>
+    <button id="btnLogTab">LOG</button>
 
 <script src="web/viewer.js"></script>
 </body>

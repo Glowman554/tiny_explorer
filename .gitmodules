@@ -1,0 +1,6 @@
+[submodule "vendor/gdstk"]
+	path = vendor/gdstk
+	url = https://github.com/heitzmann/gdstk.git
+[submodule "vendor/zlib"]
+	path = vendor/zlib
+	url = https://github.com/madler/zlib.git

@@ -1,280 +1,419 @@
-// g++ -std=c++17 -O3 main.cpp -o main && ./main gds/09_tt_um_znah_vga_ca.gds
-
 #include <array>
 #include <cstdio>
 #include <vector>
 #include <string>
 #include <cstdint>
 #include <map>
+#include <cstring>
+#include <cstdlib>
+#include <chrono>
 #include <tuple>
-#include <set>
+
+#include "gdstk/cell.hpp"
+#include "gdstk/reference.hpp"
+#include "gdstk/utils.hpp"
+#include <sys/stat.h>
 
 #include "geom.h"
 #include "cells.h"
-#include "parser.h"
-#include "fetsim.h"
 #include "cell_processing.h"
 
+#include <gdstk/gdstk.hpp>
 
-// MARK: - Circuit Export
-
-struct FlattenedData {
-    std::vector<RectWire> rectData; // Flattened [x1, y1, x2, y2, wire, ...]
-    uint32_t layerOffsets[L_COUNT + 1];
-    std::vector<std::string> topWireLabels;
-    Circuit circuit;
-};
-
-struct CircuitFlattener {
-    CellLibrary& lib;
-    CircuitBuilder builder;
-    std::vector<RectWire> flatLayers[L_COUNT];
-
-    CircuitFlattener(CellLibrary& lib) : lib(lib) {}
-
-    void flatten(Cell& cell, std::map<int32_t, int> externalWires, const std::string& prefix, Transformer t) {
-        CircuitBuilder::Scope scope(builder, prefix.empty() ? nullptr : prefix.c_str());
-
-        // wire_dsu_root -> builder_wire_id
-        std::map<int32_t, int> localWireMap = externalWires;
-
-        auto getLocalWire = [&](int32_t wireRoot) {
-            auto it = localWireMap.find(wireRoot);
-            if (it != localWireMap.end()) return it->second;
-            return localWireMap[wireRoot] = builder.add_wire();
-        };
-
-        // Determine active wires (connected to I/O, FETs, or Sub-cells)
-        std::set<int32_t> activeWires;
-        for (const auto& [root, _] : externalWires) activeWires.insert(root);
-        for (const auto& fet : cell.fets) {
-            activeWires.insert(fet.gate);
-            activeWires.insert(fet.term[0]);
-            activeWires.insert(fet.term[1]);
-        }
-        for (const auto& cw : cell.connectionsR2W) {
-             activeWires.insert(cell.wireDSU.find(cw.parentIdx));
-        }
-
-        // Pre-allocate IDs for all active wires to ensure consistent numbering
-        for (int32_t root : activeWires) getLocalWire(root);
-
-        // Collect Rects
-        for (int l = 0; l < L_COUNT; ++l) {
-            if (l == L_DIFF || l == L_CHANNEL || l == L_N_TERM || l == L_P_TERM) continue;
-
-            const auto& layer = cell.layers[l];
-            for (size_t i = 0; i < layer.rectCount; ++i) {
-                int rectIdx = layer.rectStart + i;
-                const Rect& r = cell.rects[rectIdx];
-                int wireRoot = cell.wireDSU.find(rectIdx);
-                Rect tr = t.applyToRect(r, 0, 0);
-
-                int globalWire = -1;
-                if (l == L_NWELL || l == L_ERROR) {
-                    globalWire = -1;
-                } else if (activeWires.count(wireRoot)) {
-                    globalWire = getLocalWire(wireRoot);
-                } else {
-                    flatLayers[L_ERROR].push_back({tr, -1});
-                    continue;
-                }
-
-                LayerID targetL = (LayerID)l;
-                if (l == L_TERMINAL) {
-                    bool isP = false;
-                    const auto& nwellL = cell.layers[L_NWELL];
-                    if (nwellL.rectCount > 0) {
-                        queryBVH(nwellL.bvh, cell.rects, r, [&](int) { isP = true; }, overlaps);
-                    }
-                    targetL = isP ? L_P_TERM : L_N_TERM;
-                }
-                flatLayers[targetL].push_back({tr, globalWire});
-            }
-        }
-
-        // Flatten FETs
-        for (const auto& fet : cell.fets) {
-            int g = getLocalWire(cell.wireDSU.find(fet.gate));
-            int t0 = getLocalWire(cell.wireDSU.find(fet.term[0]));
-            int t1 = getLocalWire(cell.wireDSU.find(fet.term[1]));
-            builder.add_fet(g, t0, t1, fet.type);
-        }
-        if (builder.fets.size() % 50000 < cell.fets.size()) {
-            printf("Exported %zu fets...\n", builder.fets.size());
-        }
-
-        // Traverse children
-        for (size_t refIdx = 0; refIdx < cell.references.size(); ++refIdx) {
-            const auto& ref = cell.references[refIdx];
-            if (ref.type == Reference::AREF) continue; // Ignore AREFs for now
-            auto it = lib.cellMap.find(ref.cellName);
-            if (it == lib.cellMap.end()) continue;
-            Cell& child = lib.cells[it->second];
-
-            if (child.flatFETs == 0 && cell.bridgingRefs.find((int32_t)refIdx) == cell.bridgingRefs.end()) {
-                continue;
-            }
-
-            std::map<int32_t, int> childExternalWires;
-            for (const auto& cw : cell.connectionsR2W) {
-                if (cw.childRefIdx == (int32_t)refIdx) {
-                    int32_t parentRoot = cell.wireDSU.find(cw.parentIdx);
-                    childExternalWires[cw.childIdx] = getLocalWire(parentRoot);
-                }
-            }
-            
-            std::string subPrefix = ref.cellName + "_" + std::to_string(refIdx);
-            flatten(child, childExternalWires, subPrefix, t.compose(ref));
-        }
-    }
-};
-
-static void optimizeFlattenedGeometry(std::vector<RectWire> rawLayers[L_COUNT], FlattenedData& out) {
-    printf("Optimizing geometry... ");
-    size_t totalBefore = 0, totalDiscarded = 0;
-
-    for (int l = 0; l < L_COUNT; ++l) {
-        out.layerOffsets[l] = (uint32_t)out.rectData.size();
-        
-        auto& rects = rawLayers[l];
-        totalBefore += rects.size();
-        totalDiscarded += optimizeRects(rects, out.rectData);
-    }
-    out.layerOffsets[L_COUNT] = (uint32_t)out.rectData.size();
-    if (totalDiscarded) printf("discarded %zu of %zu rects\n", totalDiscarded, totalBefore);
+#ifdef WASM
+extern "C" {
+    void __cxa_throw(void* ex, void* info, void (*dest)(void*)) { abort(); }
+    void* __cxa_allocate_exception(size_t size) { return malloc(size); }
+    void __cxa_free_exception(void* p) { free(p); }
 }
-
-static std::map<int32_t, int> initializeTopWires(Cell& topCell, CircuitBuilder& builder) {
-    std::map<int32_t, int> topWireMap;
-    int32_t gndRoot = (topCell.groundRect != -1) ? topCell.wireDSU.find(topCell.groundRect) : -1;
-    int32_t pwrRoot = (topCell.powerRect != -1) ? topCell.wireDSU.find(topCell.powerRect) : -1;
-
-    if (gndRoot != -1) topWireMap[gndRoot] = 0; 
-    if (pwrRoot != -1) topWireMap[pwrRoot] = 1;
-
-    while (builder.wire_names.size() < 2) builder.add_wire();
-
-    for (auto const& [label, rectIdx] : topCell.label2rect) {
-        int32_t root = topCell.wireDSU.find(rectIdx);
-        if (root == gndRoot || root == pwrRoot || topWireMap.count(root)) continue;
-        topWireMap[root] = builder.add_wire(label.c_str());
-    }
-    return topWireMap;
-}
-
-FlattenedData flattenCircuit(CellLibrary& lib) {
-    FlattenedData out;
-    auto it = lib.cellMap.find(lib.topCellName);
-    Cell& topCell = lib.cells[it->second];
-    
-    CircuitFlattener flattener(lib);
-    // DSU root -> export wire id
-    auto topWireMap = initializeTopWires(topCell, flattener.builder);
-    flattener.flatten(topCell, topWireMap, "", Transformer());
-    optimizeFlattenedGeometry(flattener.flatLayers, out);
-    out.circuit = flattener.builder.build();
-
-    return out;
-}
-
-// MARK: - Main
-
-struct ParserState {
-    CellLibrary lib;
-    FlattenedData flat;
-    GDSParser parser;
-
-    ParserState() : parser(lib, tryProcessCell) {}
-
-    void push_chunk(const uint8_t* data, size_t len) {
-        parser.consumeChunk(data, len);
-    }
-
-    void finalize() {
-        if (!parser.isFinished) {
-            fprintf(stderr, "Error: GDS truncated");
-            return;
-        }
-        
-        // process leftover cells
-        std::vector<int> visited(lib.cells.size(), 0);
-        std::function<void(size_t)> visit = [&](size_t idx) {
-            if (lib.cells[idx].isProcessed) return;
-            if (visited[idx] != 0) {
-                fprintf(stderr, "Error: GDS reference loop detected!");
-                return;
-            } 
-            visited[idx] = 1;
-            for (const auto& ref : lib.cells[idx].references) {
-                auto it = lib.cellMap.find(ref.cellName);
-                if (it != lib.cellMap.end()) {
-                    visit(it->second);
-                }
-            }
-            tryProcessCell(lib.cells[idx], lib);
-        };
-        for (size_t i = 0; i < lib.cells.size(); ++i) {visit(i);}
-
-        // find top cell
-        for (const auto& cell : lib.cells) {
-            if (cell.isTop) {
-                lib.topCellName = cell.name;
-                break;
-            }
-        }
-
-        flat = flattenCircuit(lib);
-
-        // print stats
-        printf("Library: %s\n", lib.name.c_str());
-        printf("Units: User=%g, DB=%g\n", lib.userUnit, lib.dbUnit);
-        printf("Total Cells: %zu\n\n", lib.cells.size());
-        printf("Top cell: %s\n\n", lib.topCellName.c_str());
-        printf("Stats: FlatRects=%zu FlatFETs=%zu FlatWires=%zu\n",
-            flat.rectData.size(), flat.circuit.fet_n(), flat.circuit.wire_n());
-    }
-
-};
-
-ParserState * wasm_state = nullptr;
-
-#ifdef __wasm__
-#define WASM_EXPORT(name) __attribute__((export_name(name)))
-#else 
-#define WASM_EXPORT(name)
 #endif
 
 extern "C" {
-    WASM_EXPORT("wasm_malloc") void* wasm_malloc(size_t size) { return malloc(size); }
-    WASM_EXPORT("wasm_free") void wasm_free(void* ptr) { free(ptr); }
+void wasm_arena_init(uint32_t mode);
+uint64_t wasm_arena_get_usage();
+void* wasm_malloc(size_t size);
+void wasm_free(void* ptr);
+}
 
-    WASM_EXPORT("wasm_init") void wasm_init() {
-        if (wasm_state) delete wasm_state;
-        wasm_state = new ParserState();
-        setvbuf(stdout, NULL, _IONBF, 0);
+using CellID = int;
+using InstID = int;
+struct Instance : Rect {
+    CellID cell_id;
+    InstID inst_id;
+    Transform tform;
+};
+
+struct RectWire : Rect { int wire; };
+constexpr int RECT_WIRE_FIELDS = 5; // x1, y1, x2, y2, wire
+
+struct WireLink {
+    InstID inst_a, inst_b;
+    int wire_a, wire_b;
+    auto tie() const { return std::tie(inst_a, inst_b, wire_a, wire_b); }
+    bool operator<(const WireLink& o) const { return tie() < o.tie(); }
+    bool operator==(const WireLink& o) const { return tie() == o.tie(); }
+};
+
+struct CircuitExtractor {
+    gdstk::Library glib;
+
+    std::vector<Cell> cells;
+    std::string pdk = "sky130A"; // default
+    std::map<const gdstk::Cell*, int> gcell2id;
+
+    std::vector<Instance> instances; // just for viz
+
+    struct InstLayer {
+        std::vector<Instance> instances;
+        std::vector<BVHNode> bvh;
+    };
+    std::array<InstLayer, L_COUNT> instLayers;
+    Circuit circuit;
+    CircuitMetadata circuitMeta;
+
+    std::vector<int> instOffsets;
+    std::vector<int> segment2flat;
+    DSU globalDSU;
+
+    std::vector<RectWire> flatRects;
+    std::array<uint32_t, L_COUNT + 1> flatLayerOffsets;
+
+    bool run(const char * path) {
+        if (!load(path)) return false;
+        return process();
     }
 
-    WASM_EXPORT("wasm_push_chunk") void wasm_push_chunk(const uint8_t* data, size_t len) {
-        if (wasm_state) wasm_state->push_chunk(data, len);
+    bool load(const char * path) {
+        return loadLib(path);
     }
 
-    WASM_EXPORT("wasm_finalize") void wasm_finalize() {
-        if (!wasm_state) return;
-        wasm_state->finalize();
+    bool process() {
+        gdstk::Cell * top = getTop();
+        if (!top) return false;
+        preprocessCells();
+        const Cell topCell = cells[gcell2id[top]];
+        printf("Top cell labels: ");
+        for (auto const& [name, rIdx] : topCell.label2rect) {
+            printf("%s ", name.c_str());
+        }
+        printf("\n");
+        if (topCell.groundRect == -1 || topCell.powerRect == -1) {
+            fprintf(stderr, "Error: missing power/ground labels in top cell\n");
+            return false;
+        }
+        
+        walkRefs(top, Transform());
+        wireCells();
+        buildNetlist();
+
+        printStats();
+        return true;
     }
 
-    WASM_EXPORT("wasm_get_rect_data_ptr") int32_t* wasm_get_rect_data_ptr() {
-        return wasm_state ? (int32_t*)wasm_state->flat.rectData.data() : nullptr;
+    bool loadLib(const char * path) {
+        gdstk::ErrorCode err = gdstk::ErrorCode::NoError;
+        std::string s_path = path;
+        const double unit = 1e-9;
+        if (s_path.size() >= 4 && s_path.substr(s_path.size() - 4) == ".oas") {
+            glib = gdstk::read_oas(path, unit, 0, &err);
+        } else {
+            glib = gdstk::read_gds(path, unit, 0, nullptr, &err);
+        }
+        if (err != gdstk::ErrorCode::NoError) {
+            printf("Error: unable to load library %s (gdstk ErrorCode %d)\n", path, (int)err);
+            return false;
+        }
+        return true;
     }
-    WASM_EXPORT("wasm_get_rect_data_size") uint32_t wasm_get_rect_data_size() {
-        return wasm_state ? wasm_state->flat.rectData.size() * RECT_WIRE_FIELDS : 0;
+
+    gdstk::Cell * getTop() {
+        gdstk::Array<gdstk::Cell*> tops = {};
+        gdstk::Array<gdstk::RawCell*> raw_tops = {};
+        glib.top_level(tops, raw_tops);
+        if (tops.count == 0) {
+            printf("Error: top cell not found.");
+            return nullptr;
+        }
+        gdstk::Cell * top = tops[0];
+        printf("Top cell: %s\n", top->name);
+        tops.clear(); raw_tops.clear();
+        return top;
     }
-    WASM_EXPORT("wasm_get_layer_offsets_ptr") uint32_t* wasm_get_layer_offsets_ptr() {
-        return wasm_state ? (uint32_t*)wasm_state->flat.layerOffsets : nullptr;
+
+    void preprocessCells() {
+        fracture_cell_func fracture_polygons;
+        cells.resize(glib.cell_array.count);
+        for (CellID cell_id=0; cell_id<cells.size(); ++cell_id) {
+            gdstk::Cell* gcell = glib.cell_array[cell_id];
+            gcell2id[gcell] = cell_id;
+            Cell & cell = cells[cell_id];
+            cell.name = gcell->name;
+            normalize_gcell(gcell);
+            fracture_polygons(gcell, cell, pdk);
+            processFETLayers(cell);
+            mergeCellWires(cell);
+            resolveLabelsGdstk(gcell, cell, pdk);
+            assignWireIDs(cell);
+            extractFETs(cell);
+            cell.isFiller = isFillerCell(cell.name) && gcell->reference_array.count == 0;
+            if (cell.rects.size() > 1000) {
+                printf("Big cell: %s (%zu rects, %u wires, %zu FETs)\n", 
+                    cell.name.c_str(), cell.rects.size(), cell.wireDSU.count(), cell.fets.size());
+            }
+        }
     }
-    WASM_EXPORT("wasm_get_layer_offsets_size") uint32_t wasm_get_layer_offsets_size() {
-        return wasm_state ? L_COUNT + 1 : 0;
+
+    void walkRefs(gdstk::Cell* gcell, const Transform & tform) {
+        CellID cell_id = gcell2id[gcell];
+        const Cell & cell = cells[cell_id];
+        if (cell.isFiller) return;
+        InstID inst_id = instances.size();
+        instances.push_back({tform.apply(cell.bbox), cell_id, inst_id, tform});
+        // these will be used for per-layer instance intersection queries
+        for (int li=0; li<L_COUNT; ++li) {
+            if (cell.layers[li].rectCount == 0) continue;
+            Rect bbox = cell.layers[li].bvh[0].bbox;
+            instLayers[li].instances.push_back({tform.apply(bbox), cell_id, inst_id, tform});
+        }
+
+        for (int i=0; i<gcell->reference_array.count; ++i) {
+            const gdstk::Reference * ref = gcell->reference_array[i];
+            if (ref->type != gdstk::ReferenceType::Cell) continue;
+            
+            if (!Transform::isSupported(*ref)) {
+                printf("Warning: skipping unsupported reference in cell %s (rotation=%.2f, mag=%.2f, origin=(%.2f, %.2f))\n",
+                    gcell->name, ref->rotation, ref->magnification, ref->origin.x, ref->origin.y);
+                continue;
+            }
+
+            Transform child_tform(*ref);
+            walkRefs(ref->cell, tform.compose(child_tform));
+        }
+    }
+
+
+    void wireCells() {
+        for (int i=0; i<L_COUNT; ++i) {
+            auto & layer = instLayers[i];
+            if (i < L_N_TERM || layer.instances.empty()) continue;
+            buildLayerBVH(layer.instances, 0, layer.instances.size(), layer.bvh);
+            int overlapCount = 0;
+            collideSelf(layer.bvh, layer.instances, [&](int inst_a, int inst_b) {
+                ++overlapCount;
+                wirePair(i, inst_a, inst_b);
+            });
+            printf("%9s - instN: %zu, overlapCount: %d\n", getLayerName((LayerID)i), layer.instances.size(), overlapCount);
+        }
+        unique_sort(wires);
+    }
+
+    std::vector<WireLink> wires;
+
+    void wirePair(int lid, int idxA, int idxB) {
+        const auto &instA = instLayers[lid].instances[idxA];
+        const auto &instB = instLayers[lid].instances[idxB];
+        Cell &cellA = cells[instA.cell_id];
+        Cell &cellB = cells[instB.cell_id];
+        const auto &qA = cellA.layers[lid];
+        const auto &qB = cellB.layers[lid];
+
+        auto pred = [&](const Rect& ra, const Rect& rb) {
+            return touches(instA.tform.apply(ra), instB.tform.apply(rb));
+        };
+
+        collideTrees(qA.bvh, cellA.rects, qB.bvh, cellB.rects, [&](int rA, int rB) {
+            int wA = cellA.rect2wire[rA];
+            int wB = cellB.rect2wire[rB];
+            
+            WireLink link = {instA.inst_id, instB.inst_id, wA, wB};
+            if (link.inst_a > link.inst_b || (link.inst_a == link.inst_b && link.wire_a > link.wire_b)) {
+                std::swap(link.inst_a, link.inst_b);
+                std::swap(link.wire_a, link.wire_b);
+            }
+            wires.push_back(link);
+        }, pred);
+    }
+
+    void buildNetlist() {
+        instOffsets.resize(instances.size());
+        int totalSegments = 0;
+        for (size_t i = 0; i < instances.size(); i++) {
+            instOffsets[i] = totalSegments;
+            totalSegments += (int)cells[instances[i].cell_id].wireCount;
+        }
+
+        globalDSU = DSU(totalSegments);
+        for (const auto& link : wires) {
+            globalDSU.unite(instOffsets[link.inst_a] + link.wire_a,
+                           instOffsets[link.inst_b] + link.wire_b);
+        }
+
+        std::unordered_map<int, int> root2id;
+        root2id[globalDSU.find(0)] = 0; // GND
+        root2id[globalDSU.find(1)] = 1; // PWR
+        
+        int next_id = 2;
+        const Cell& top = cells[instances[0].cell_id];
+        for (auto const& [name, rIdx] : top.label2rect) {
+            int root = globalDSU.find(top.rect2wire[rIdx]);
+            if (root2id.find(root) == root2id.end()) {
+                root2id[root] = next_id++;
+            }
+        }
+
+        int wireCount = globalDSU.assign_ids(segment2flat, root2id, next_id);
+
+        CircuitBuilder builder;
+        builder.wire_n = wireCount;
+        builder.wire_names.assign(wireCount, "");
+        for (auto const& [name, rIdx] : top.label2rect) {
+            builder.wire_names[segment2flat[top.rect2wire[rIdx]]] = name;
+        }
+        builder.wire_names[0] = "GND";
+        builder.wire_names[1] = "PWR";
+
+        for (int i = 0; i < wireCount; i++) {
+            if (builder.wire_names[i].empty()) builder.wire_names[i] = "w" + std::to_string(i);
+        }
+
+        for (size_t i = 0; i < instances.size(); i++) {
+            const Cell& cell = cells[instances[i].cell_id];
+            int offset = instOffsets[i];
+            for (const auto& fet : cell.fets) {
+                builder.add_fet(segment2flat[offset + fet.gate],
+                               segment2flat[offset + fet.term[0]],
+                               segment2flat[offset + fet.term[1]], fet.type);
+            }
+        }
+
+        circuit = builder.build(&circuitMeta);
+        printf("Global Netlist Statistics:\n  Segments: %d\n  Wires: %d\n  FETs: %zu\n", 
+               totalSegments, wireCount, circuit.fet_n());
+
+        exportRects();
+    }
+
+
+    void exportRects() {
+        printf("Flattening and optimizing layers...\n");
+        flatRects.clear();
+        flatLayerOffsets.fill(0);
+        
+        std::vector<RectWire> layerTemp;
+        for (int li = 0; li < L_COUNT; li++) {
+            flatLayerOffsets[li] = (uint32_t)flatRects.size();
+            if (li == L_DIFF || li == L_CHANNEL) continue;
+            
+            layerTemp.clear();
+            for (size_t ii = 0; ii < instances.size(); ii++) {
+                const auto& inst = instances[ii];
+                const auto& cell = cells[inst.cell_id];
+                const auto& layer = cell.layers[li];
+                if (layer.rectCount == 0) continue;
+                
+                for (uint32_t ri = 0; ri < layer.rectCount; ri++) {
+                    uint32_t rectIdx = layer.rectStart + ri;
+                    int flatWire = segment2flat[instOffsets[ii] + cell.rect2wire[rectIdx]];
+                    Rect r = inst.tform.apply(cell.rects[rectIdx]);
+                    layerTemp.push_back({r, flatWire});
+                }
+            }
+            
+            if (!layerTemp.empty()) {
+                int discarded = optimizeRects(layerTemp);
+                int initial = (int)layerTemp.size() + discarded;
+                float pct = initial > 0 ? (float)discarded * 100.0f / initial : 0.0f;
+                flatRects.insert(flatRects.end(), layerTemp.begin(), layerTemp.end());
+                printf("  %-10s: %zu rects (%d discarded, %.1f%%)\n", getLayerName((LayerID)li), layerTemp.size(), discarded, pct);
+            }
+        }
+        flatLayerOffsets[L_COUNT] = (uint32_t)flatRects.size();
+    }
+
+
+    void printStats() {
+        printf("Total flat rects: %zu\n", flatRects.size());
+        printf("Total instances: %zu\n", instances.size());
+        printf("Total crosscell wires: %zu\n", wires.size());
+    }    
+
+    ~CircuitExtractor() {
+        glib.free_all();
+    }
+};
+
+
+
+CircuitExtractor* g_extractor = nullptr;
+
+extern "C" {
+    void wasm_init() {
+        if (!g_extractor) {
+            g_extractor = new CircuitExtractor();
+        }
+    }
+
+    void wasm_set_pdk(const char* pdk) {
+        if (g_extractor) g_extractor->pdk = pdk;
+    }
+
+    bool wasm_load_file(const char* path) {
+        if (!g_extractor) return false;
+        return g_extractor->load(path);
+    }
+
+    bool wasm_process() {
+        if (!g_extractor) return false;
+        return g_extractor->process();
+    }
+
+    void* wasm_get_rect_data_ptr() {
+        return g_extractor ? g_extractor->flatRects.data() : nullptr;
+    }
+
+    uint32_t wasm_get_rect_data_size() {
+        return g_extractor ? (uint32_t)(g_extractor->flatRects.size() * sizeof(RectWire)) : 0;
+    }
+
+    void* wasm_get_layer_offsets_ptr() {
+        return g_extractor ? (void*)g_extractor->flatLayerOffsets.data() : nullptr;
+    }
+
+    uint32_t wasm_get_layer_offsets_size() {
+        return g_extractor ? (uint32_t)(g_extractor->flatLayerOffsets.size() * sizeof(uint32_t)) : 0;
     }
 }
 
+#ifdef WASM
+extern "C" int main() { return 0; }
+#endif
+
+#ifndef WASM
+int main() {
+    wasm_arena_init(1);
+    //const char * path = "gds/ihp-25a/tt_um_znah_vga_ca.gds", *pdk = "ihp-sg13g2";
+    //const char * path = "gds/sky-25b/tt_um_pongsagon_tinygpu_v2.oas", *pdk = "sky130A";
+    const char * path = "gds/09/tt_um_rejunity_atari2600.gds", *pdk = "sky130A";
+    //const char * path = "gds/gf-0p2/tt_um_2048_vga_game.oas", *pdk = "gf180mcuD";
+    printf("Loading: %s\n", path);
+
+    CircuitExtractor proc;
+    proc.pdk = pdk;
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    if (!proc.load(path)) return 1;
+    auto t1 = std::chrono::high_resolution_clock::now();
+    
+    if (!proc.process()) return 1;
+    auto t2 = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<double, std::milli> d_load = t1 - t0;
+    std::chrono::duration<double, std::milli> d_proc = t2 - t1;
+    
+    printf("GDSTK Load : %.2f ms\n", d_load.count());
+    printf("Processing : %.2f ms\n", d_proc.count());
+    printf("Total Time : %.2f ms\n", (d_load + d_proc).count());
+    printf("Arena usage: %.2f MB\n", (float)wasm_arena_get_usage() / (1024*1024));
+    return 0;
+}
+#endif

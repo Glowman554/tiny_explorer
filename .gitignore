@@ -18,3 +18,9 @@
 
 # Temporary/Local leftovers
 *.log
+.zig-cache/
+
+oas_test/
+zig-out/
+*.o
+*.d

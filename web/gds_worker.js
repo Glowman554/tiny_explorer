@@ -5,6 +5,7 @@
  */
 
 import brotliInit, { DecompressStream, BrotliStreamResultCode } from '../vendor/brotli_dec_wasm.js';
+import { WASI, File, PreopenDirectory, Fd, ConsoleStdout } from '../vendor/browser_wasi_shim.js';
 
 let instance;
 let logBuffer = "";
@@ -13,137 +14,110 @@ function log(msg) {
     postMessage({ type: 'log', message: msg });
 }
 
-const wasiShim = {
-    fd_write: (fd, iovs, iovsLen, nwritten) => {
-        const view = new DataView(instance.exports.memory.buffer);
-        let written = 0;
-        for (let i = 0; i < iovsLen; i++) {
-            const ptr = view.getUint32(iovs + i * 8, true);
-            const len = view.getUint32(iovs + i * 8 + 4, true);
-            const bytes = new Uint8Array(instance.exports.memory.buffer, ptr, len);
-            const text = new TextDecoder().decode(bytes);
-            logBuffer += text;
-            log(text); // Send to main thread for real-time display
-            written += len;
-        }
-        view.setUint32(nwritten, written, true);
-        return 0;
-    },
-    fd_prestat_get: () => 8,
-    fd_prestat_dir_name: () => 8,
-    args_sizes_get: (argc, bufSize) => {
-        const view = new DataView(instance.exports.memory.buffer);
-        view.setUint32(argc, 0, true);
-        view.setUint32(bufSize, 0, true);
-        return 0;
-    },
-    args_get: () => 0,
-    clock_time_get: () => 0,
-    proc_exit: (code) => console.log(`Process exited with code ${code}`),
-    environ_sizes_get: (n, s) => { 
-        const view = new DataView(instance.exports.memory.buffer);
-        view.setUint32(n, 0, true); 
-        view.setUint32(s, 0, true); 
-        return 0; 
-    },
-    environ_get: () => 0,
-    fd_close: () => 0,
-    fd_seek: () => 0,
-    fd_fdstat_get: () => 0,
-};
+const files = new Map();
 
-async function runGdsTask(gdsUrl, options = {}) {
+async function runGdsTask(gdsUrl, pdk, options = {}) {
     logBuffer = "";
     const { returnGeometry = true } = options;
+    
     const urlPath = gdsUrl.toLowerCase().split(/[?#]/)[0];
     const isBrotli = urlPath.endsWith('.br');
+    const isGzip = urlPath.endsWith('.gz');
     
     try {
-        // Initialize Brotli if needed
-        if (isBrotli) {
-            await brotliInit();
+        if (isBrotli) await brotliInit();
+
+        // 1. Fetch and decompress data
+        const startTime = performance.now();
+        const response = await fetch(gdsUrl);
+        let data;
+
+        if (isGzip) {
+            const stream = response.body.pipeThrough(new DecompressionStream('gzip'));
+            data = new Uint8Array(await new Response(stream).arrayBuffer());
+        } else if (isBrotli) {
+            const compressed = new Uint8Array(await response.arrayBuffer());
+            const brotli = new DecompressStream();
+            const result = brotli.decompress(compressed, 200 * 1024 * 1024); // max 200MB
+            data = result.buf;
+        } else {
+            data = new Uint8Array(await response.arrayBuffer());
         }
 
+        const totalBytes = data.length;
+        const virtPath = urlPath.substring(urlPath.lastIndexOf('/') + 1).replace('.gz', '').replace('.br', '');
+
+        // 2. Setup WASI
+        const stdoutHandler = bytes => {
+            const text = new TextDecoder().decode(bytes);
+            logBuffer += text;
+            log(text);
+        };
+
+        const fds = [
+            new Fd(),
+            new ConsoleStdout(stdoutHandler),
+            new ConsoleStdout(stdoutHandler),
+            new PreopenDirectory(".", new Map([[virtPath, new File(data)]]))
+        ];
+
+        const wasi = new WASI(["explorer"], [], fds);
+
+        // 3. Initialize WASM
         const wasmResponse = await fetch('explorer.wasm');
         const wasmBuffer = await wasmResponse.arrayBuffer();
         const { instance: wasmInstance } = await WebAssembly.instantiate(wasmBuffer, {
-            wasi_snapshot_preview1: wasiShim
+            wasi_snapshot_preview1: wasi.wasiImport
         });
-        
         instance = wasmInstance;
+        
+        wasi.initialize(instance);
         instance.exports.wasm_init();
+        if (instance.exports.wasm_arena_init) instance.exports.wasm_arena_init(1); // Enable Arena Mode (1 = Arena, 0 = Heap)
 
-        const response = await fetch(gdsUrl);
-        let stream = response.body;
-        if (urlPath.endsWith('.gz')) {
-            stream = stream.pipeThrough(new DecompressionStream('gzip'));
+        // 4. GDSTK Load phase
+        const loadStart = performance.now();
+        const pathPtr = instance.exports.wasm_malloc(virtPath.length + 1);
+        const pathBuf = new Uint8Array(instance.exports.memory.buffer, pathPtr, virtPath.length + 1);
+        new TextEncoder().encodeInto(virtPath, pathBuf);
+        pathBuf[virtPath.length] = 0;
+
+        instance.exports.wasm_load_file(pathPtr);
+        instance.exports.wasm_free(pathPtr);
+        const loadTime = performance.now() - loadStart;
+
+        // 5. Processing phase
+        const procStart = performance.now();
+        
+        // Pass PDK name if provided in URL (e.g. "path/to/gds:sky130A")
+        if (pdk) {
+            const pdkPtr = instance.exports.wasm_malloc(pdk.length + 1);
+            const pdkBuf = new Uint8Array(instance.exports.memory.buffer, pdkPtr, pdk.length + 1);
+            new TextEncoder().encodeInto(pdk, pdkBuf);
+            pdkBuf[pdk.length] = 0;
+            instance.exports.wasm_set_pdk(pdkPtr);
+            instance.exports.wasm_free(pdkPtr);
         }
 
-        const reader = stream.getReader();
-
-        let totalBytes = 0;
-        const startTime = performance.now();
-
-        const brotliStream = isBrotli ? new DecompressStream() : null;
-
-        let chunkPtr = 0;
-        let chunkCap = 0;
-
-        function pushToParser(data) {
-            const len = data.length;
-            totalBytes += len;
-
-            if (len > chunkCap) {
-                if (chunkPtr) instance.exports.wasm_free(chunkPtr);
-                chunkCap = Math.max(len, 256 * 1024);
-                chunkPtr = instance.exports.wasm_malloc(chunkCap);
-            }
-
-            const wasmBuf = new Uint8Array(instance.exports.memory.buffer, chunkPtr, len);
-            wasmBuf.set(data);
-            instance.exports.wasm_push_chunk(chunkPtr, len);
-        }
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            if (isBrotli) {
-                // Decompress chunk
-                let input = value;
-                while (true) {
-                    const result = brotliStream.decompress(input, 1024 * 1024); // 1MB buffer
-                    const uncompressed = result.buf;
-                    
-                    if (uncompressed.length > 0) {
-                        pushToParser(uncompressed);
-                    }
-                    
-                    input = input.subarray(result.input_offset);
-                    if (result.code === BrotliStreamResultCode.ResultSuccess) break;
-                    if (result.code === BrotliStreamResultCode.NeedsMoreInput && input.length === 0) break;
-                }
-            } else {
-                pushToParser(value);
-            }
-        }
-
-        if (chunkPtr) instance.exports.wasm_free(chunkPtr);
-        instance.exports.wasm_finalize();
+        instance.exports.wasm_process();
+        const procTime = performance.now() - procStart;
         
         const totalTime = performance.now() - startTime;
-        const memMB = (instance.exports.memory.buffer.byteLength / 1024 / 1024).toFixed(2);
+        const arenaUsage = instance.exports.wasm_arena_get_usage ? Number(instance.exports.wasm_arena_get_usage()) : 0;
+        const memMB = (arenaUsage > 0 ? arenaUsage : instance.exports.memory.buffer.byteLength) / 1024 / 1024;
 
         const stats = {
             totalBytes,
             totalTime,
+            loadTime,
+            procTime,
             wallTime: totalTime,
-            memMB,
-            peakMemMB: memMB,
-            flatRects: parseInt(logBuffer.match(/FlatRects=(\d+)/)?.[1] || 0),
-            flatFETs: parseInt(logBuffer.match(/FlatFETs=(\d+)/)?.[1] || 0),
-            netlistWires: parseInt(logBuffer.match(/NetlistWires=(\d+)/)?.[1] || 0),
-            netlistFETs: parseInt(logBuffer.match(/NetlistFETs=(\d+)/)?.[1] || 0),
+            memMB: memMB.toFixed(2),
+            peakMemMB: memMB.toFixed(2),
+            flatRects: parseInt(logBuffer.match(/Total flat rects: (\d+)/)?.[1] || 0),
+            flatFETs: 0, // Not currently explicitly logged
+            netlistWires: parseInt(logBuffer.match(/Wires: (\d+)/)?.[1] || 0),
+            netlistFETs: parseInt(logBuffer.match(/FETs: (\d+)/)?.[1] || 0),
             warnings: (logBuffer.match(/Warning:/g) || []).length,
             errors: (logBuffer.match(/Error:/g) || []).length
         };
@@ -156,18 +130,20 @@ async function runGdsTask(gdsUrl, options = {}) {
             const layerOffsetsSize = instance.exports.wasm_get_layer_offsets_size();
 
             if (rectDataPtr && rectDataSize) {
-                const rectData = new Int32Array(instance.exports.memory.buffer, rectDataPtr, rectDataSize).slice();
+                // rectDataSize is in bytes, Int32Array expects element count
+                const rectData = new Int32Array(instance.exports.memory.buffer, rectDataPtr, rectDataSize / 4).slice();
                 stats.rectData = rectData;
                 transferables.push(rectData.buffer);
             }
             if (layerOffsetsPtr && layerOffsetsSize) {
-                const layerOffsets = new Uint32Array(instance.exports.memory.buffer, layerOffsetsPtr, layerOffsetsSize).slice();
+                // layerOffsetsSize is in bytes, Uint32Array expects element count
+                const layerOffsets = new Uint32Array(instance.exports.memory.buffer, layerOffsetsPtr, layerOffsetsSize / 4).slice();
                 stats.layerOffsets = layerOffsets;
                 transferables.push(layerOffsets.buffer);
             }
         }
 
-        postMessage({ type: 'done', stats, file: gdsUrl }, transferables);
+        postMessage({ type: 'done', stats, file: gdsUrl, pdk }, transferables);
 
     } catch (err) {
         postMessage({ type: 'error', file: gdsUrl, message: err.message });
@@ -176,6 +152,6 @@ async function runGdsTask(gdsUrl, options = {}) {
 
 onmessage = function(e) {
     if (e.data.type === 'start') {
-        runGdsTask(e.data.gdsUrl, e.data.options || {});
+        runGdsTask(e.data.gdsUrl, e.data.pdk, e.data.options || {});
     }
 };
