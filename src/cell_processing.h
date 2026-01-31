@@ -1,7 +1,9 @@
 #pragma once
 
+#include "geom.h"
 #include <cmath>
 #include <algorithm>
+#include <cstdio>
 #include <set>
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -131,14 +133,14 @@ struct Transform {
 inline void mergeCellWires(Cell& cell) {
     const auto & layers = cell.layers;
     auto joinWires = [&](int i, int k) { cell.wireDSU.unite(i, k); };
-    auto mergeLayers = [&](int i, int j) {
-        collideTrees(layers[i].bvh, cell.rects, layers[j].bvh, cell.rects, joinWires);
-    };
     // Intra-layer merging
     for (auto& layer : layers) {
         collideSelf(layer.bvh, cell.rects, joinWires);
     }
     // Inter-layer merging based on LayerStack (consecutive enum values)
+    auto mergeLayers = [&](int i, int j) {
+        collideTrees(layers[i].bvh, cell.rects, layers[j].bvh, cell.rects, joinWires);
+    };
     for (int i = L_POLY; i+1 <= L_MET5; ++i) {
         mergeLayers(i, i+1);
     }
@@ -149,27 +151,34 @@ inline void mergeCellWires(Cell& cell) {
 inline void assignWireIDs(Cell& cell) {
     if (cell.rects.empty()) return;
 
-    std::unordered_map<int, int> root2id;
-    
     // 1. Force IDs for special nets
+    cell.rect2wire.assign(cell.wireDSU.p.size(), DSU::NeedsID);
     if (cell.groundRect != -1) {
-        root2id[cell.wireDSU.find(cell.groundRect)] = 0;
+        cell.rect2wire[cell.wireDSU.find(cell.groundRect)] = 0;
     }
     if (cell.powerRect != -1) {
-        root2id[cell.wireDSU.find(cell.powerRect)] = 1;
+        cell.rect2wire[cell.wireDSU.find(cell.powerRect)] = 1;
     }
 
     // 2. Assign IDs to labeled wires first to keep them stable
     int next_id = 2;
     for (auto const& [name, rIdx] : cell.label2rect) {
         int root = cell.wireDSU.find(rIdx);
-        if (root2id.find(root) == root2id.end()) {
-            root2id[root] = next_id++;
+        if (cell.rect2wire[root] == DSU::NeedsID) {
+            cell.rect2wire[root] = next_id++;
         }
     }
 
-    // 3. Final mapping pass: fills rect2wire and assigns IDs to unlabeled roots
-    cell.wireCount = cell.wireDSU.assign_ids(cell.rect2wire, root2id, next_id);
+    // 3. Prevent non-participating rects from getting IDs
+    for (int i = L_NWELL; i <= L_CHANNEL; ++i) {
+        const auto & l = cell.layers[i];
+        auto begin = cell.rect2wire.begin() + l.rectStart;
+        auto end = begin + l.rectCount;
+        std::fill(begin, end, DSU::Skip);
+    }
+
+    // 4. Final mapping pass: fills rest of rect2wire and assigns IDs to unlabeled roots
+    cell.wireCount = cell.wireDSU.assign_ids(cell.rect2wire, next_id);
 }
 
 inline void extractFETs(Cell& cell) {
@@ -186,13 +195,13 @@ inline void extractFETs(Cell& cell) {
 
     for (uint32_t i = 0; i < channels.rectCount; ++i) {
         int idx = channels.rectStart + i;
-        Rect channel = cell.rects[idx];
+        Rect channelRect = cell.rects[idx];
 
         // 1. Identify Type (N/P)
         bool isPType = false;
         // Check if overlaps NWELL
         if (nwellLayer.rectCount > 0) {
-            queryBVH(nwellLayer.bvh, cell.rects, channel, [&](int) { 
+            queryBVH(nwellLayer.bvh, cell.rects, channelRect, [&](int) { 
                 isPType = true; 
                 return false; // stop searh
             }, overlaps);
@@ -201,7 +210,7 @@ inline void extractFETs(Cell& cell) {
         // 2. Identify Gate
         int32_t gateWire = -1;
         {
-            queryBVH(gateLayer.bvh, cell.rects, channel, [&](int idx) {
+            queryBVH(gateLayer.bvh, cell.rects, channelRect, [&](int idx) {
                 gateWire = cell.rect2wire[idx];
                 return false; // stop search
             }, overlaps);
@@ -210,7 +219,7 @@ inline void extractFETs(Cell& cell) {
         // 3. Identify Terminals
         std::set<int32_t> uniqueTerminals;
         const auto& tLayer = isPType ? cell.layers[L_P_TERM] : cell.layers[L_N_TERM];
-        queryBVH(tLayer.bvh, cell.rects, channel, [&](int idx) {
+        queryBVH(tLayer.bvh, cell.rects, channelRect, [&](int idx) {
             uniqueTerminals.insert(cell.rect2wire[idx]);
             return true;
         }, touches);
@@ -325,10 +334,11 @@ struct fracture_cell_func {
 
         cell.bbox = Rect::empty();
         for (int i = 0; i < L_COUNT; i++) {
-            if (tempRects[i].empty()) continue;
             auto& layer = cell.layers[i];
+            // make sure even empty layers have correct rectStart
             layer.rectStart = (uint32_t)cell.rects.size();
             layer.rectCount = (uint32_t)tempRects[i].size();
+            if (tempRects[i].empty()) continue;
             cell.rects.insert(cell.rects.end(), tempRects[i].begin(), tempRects[i].end());
             buildLayerBVH(cell.rects, layer.rectStart, layer.rectCount, layer.bvh);
             cell.bbox = getUnion(cell.bbox, layer.bvh[0].bbox);

@@ -16,6 +16,15 @@ function log(msg) {
 
 const files = new Map();
 
+function allocString(str, instance) {
+    const bytes = new TextEncoder().encode(str);
+    const ptr = instance.exports.wasm_malloc(bytes.length + 1);
+    const buf = new Uint8Array(instance.exports.memory.buffer, ptr, bytes.length + 1);
+    buf.set(bytes);
+    buf[bytes.length] = 0;
+    return ptr;
+}
+
 async function runGdsTask(gdsUrl, pdk, options = {}) {
     logBuffer = "";
     const { returnGeometry = true } = options;
@@ -77,27 +86,16 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
 
         // 4. GDSTK Load phase
         const loadStart = performance.now();
-        const pathPtr = instance.exports.wasm_malloc(virtPath.length + 1);
-        const pathBuf = new Uint8Array(instance.exports.memory.buffer, pathPtr, virtPath.length + 1);
-        new TextEncoder().encodeInto(virtPath, pathBuf);
-        pathBuf[virtPath.length] = 0;
+        const pathPtr = allocString(virtPath, instance);
+        const pdkPtr = allocString(pdk || "", instance);
 
-        instance.exports.wasm_load_file(pathPtr);
+        instance.exports.wasm_load_file(pathPtr, pdkPtr);
         instance.exports.wasm_free(pathPtr);
+        instance.exports.wasm_free(pdkPtr);
         const loadTime = performance.now() - loadStart;
 
         // 5. Processing phase
         const procStart = performance.now();
-        
-        // Pass PDK name if provided in URL (e.g. "path/to/gds:sky130A")
-        if (pdk) {
-            const pdkPtr = instance.exports.wasm_malloc(pdk.length + 1);
-            const pdkBuf = new Uint8Array(instance.exports.memory.buffer, pdkPtr, pdk.length + 1);
-            new TextEncoder().encodeInto(pdk, pdkBuf);
-            pdkBuf[pdk.length] = 0;
-            instance.exports.wasm_set_pdk(pdkPtr);
-            instance.exports.wasm_free(pdkPtr);
-        }
 
         instance.exports.wasm_process();
         const procTime = performance.now() - procStart;

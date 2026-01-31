@@ -61,16 +61,17 @@ struct DSU {
         }
         return c;
     }
-    template<typename ID, typename MapID>
-    int assign_ids(std::vector<ID> & dst, MapID & root2id, int next_id) {
+    enum {NeedsID=-1, Skip=-2};
+    template<typename ID>
+    int assign_ids(std::vector<ID> & ids, ID next_id) {
+        ids.resize(p.size(), NeedsID);
         for (int i = 0; i < (int)p.size(); ++i) {
-            if (is_root(i) && root2id.find(i) == root2id.end()) {
-                root2id[i] = next_id++;
+            if (ids[i] != NeedsID) continue;
+            int root = _find(i);
+            if (ids[root] == NeedsID) {
+                ids[root] = next_id++;
             }
-        }
-        dst.resize(p.size());
-        for (int i = 0; i < (int)p.size(); ++i) {
-            dst[i] = (ID)root2id[_find(i)];
+            ids[i] = ids[root];
         }
         return next_id;
     }

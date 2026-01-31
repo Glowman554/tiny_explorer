@@ -1,7 +1,7 @@
 const VS_SOURCE = `#version 300 es
     in vec3 a_pos;       // Box vertex position (0..1)
-    in vec4 a_rect;      // Rect: x1, y1, x2, y2
-    in float a_net;      // Net ID
+    in ivec4 a_rect;     // Rect: x1, y1, x2, y2
+    in int a_net;        // Net ID
     
     uniform mat4 u_viewMat;
     uniform float u_layerZ;
@@ -9,20 +9,20 @@ const VS_SOURCE = `#version 300 es
     uniform float u_showPowerNets;
     uniform float u_isExemptLayer;
     
-    out float v_net;
+    flat out int v_net;
     out vec2 v_pos;
     out float v_light;
 
     void main() {
         if (u_showPowerNets < 0.5 && u_isExemptLayer < 0.5) {
-            if (a_net > -0.5 && a_net < 1.5) {
+            if (a_net == 0 || a_net == 1) {
                 // Collapse the geometry to avoid rasterization
                 gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
                 return;
             }
         }
 
-        vec2 rectPos = mix(a_rect.xy, a_rect.zw, a_pos.xy);
+        vec2 rectPos = mix(vec2(a_rect.xy), vec2(a_rect.zw), a_pos.xy);
         float z = u_layerZ + a_pos.z * u_thickness;
         vec4 p = vec4(rectPos, z, 1.0);
         gl_Position = u_viewMat * p;
@@ -39,11 +39,13 @@ const FS_SOURCE = `#version 300 es
     precision mediump float;
     
     uniform vec4 u_color;
-    uniform float u_highlightNet; // -1 if none
     uniform float u_globalAlpha;
     uniform float u_showBoundaries;
+    uniform float u_isHighlighting; // 1.0 if any net is highlighted
+    uniform lowp usampler2D u_netStates;
+    uniform ivec2 u_netStatesSize;
     
-    in float v_net;
+    flat in int v_net;
     in vec2 v_pos;
     in float v_light;
     
@@ -53,8 +55,16 @@ const FS_SOURCE = `#version 300 es
         vec4 color = u_color;
         color.rgb *= v_light;
         
-        if (u_highlightNet >= 0.0) {
-            if (abs(v_net - u_highlightNet) > 0.1) {
+        bool isHighlighted = false;
+        
+        if (v_net >= 0 && u_netStatesSize.x > 0) {
+            ivec2 texCoords = ivec2(v_net % u_netStatesSize.x, v_net / u_netStatesSize.x);
+            uint state = texelFetch(u_netStates, texCoords, 0).r;
+            if ((state & 1u) != 0u) isHighlighted = true;
+        }
+
+        if (u_isHighlighting > 0.5) {
+            if (!isHighlighted) {
                 // Dim non-highlighted nets
                 color.a *= 0.1;
                 color.rgb *= 0.5;
@@ -202,7 +212,11 @@ function _handleMove(dx, dy, isRotate) {
 }
 
 let highlightNet = -1;
+let highlightedCount = 0;
 let soloLayerId = null;
+let netStateTexture = null;
+let netStatesSize = [0, 0];
+let netStateData = null;
 
 function initWebGL() {
     const canvas = document.getElementById('glcanvas');
@@ -389,12 +403,20 @@ function render() {
     const u_viewMat = gl.getUniformLocation(program, "u_viewMat");
     gl.uniformMatrix4fv(u_viewMat, false, viewMat);
 
-    const u_highlight = gl.getUniformLocation(program, "u_highlightNet");
-    gl.uniform1f(u_highlight, highlightNet);
+    const u_isHighlighting = gl.getUniformLocation(program, "u_isHighlighting");
+    gl.uniform1f(u_isHighlighting, (highlightedCount > 0) ? 1.0 : 0.0);
 
     const u_alpha = gl.getUniformLocation(program, "u_globalAlpha");
     const baseGlobalAlpha = parseFloat(document.getElementById('alphaSlider').value);
     
+    // Net states texture
+    const u_netStates = gl.getUniformLocation(program, "u_netStates");
+    const u_netStatesSize = gl.getUniformLocation(program, "u_netStatesSize");
+    gl.uniform2iv(u_netStatesSize, netStatesSize);
+    
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, netStateTexture);
+    gl.uniform1i(u_netStates, 0);
     const u_showBoundaries = gl.getUniformLocation(program, "u_showBoundaries");
     gl.uniform1f(u_showBoundaries, document.getElementById('boundaryToggle').checked ? 1.0 : 0.0);
 
@@ -448,15 +470,15 @@ function render() {
 
         gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
         
-        // Stride is 5 floats: x, y, w, h, net
+        // Stride is 5 ints: x, y, w, h, net
         const stride = 5 * 4;
         
         gl.enableVertexAttribArray(a_rect);
-        gl.vertexAttribPointer(a_rect, 4, gl.FLOAT, false, stride, 0);
+        gl.vertexAttribIPointer(a_rect, 4, gl.INT, stride, 0);
         gl.vertexAttribDivisor(a_rect, 1);
         
         gl.enableVertexAttribArray(a_net);
-        gl.vertexAttribPointer(a_net, 1, gl.FLOAT, false, stride, 4 * 4);
+        gl.vertexAttribIPointer(a_net, 1, gl.INT, stride, 4 * 4);
         gl.vertexAttribDivisor(a_net, 1);
 
         gl.drawElementsInstanced(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0, layer.count);
@@ -532,12 +554,13 @@ function processParsedData(stats) {
     const L_COUNT = layerOffsets.length - 1;
     sortedLids = [];
     
+    let maxNet = -1;
     for (let lid = 0; lid < L_COUNT; lid++) {
         const start = layerOffsets[lid] * 5;
         const end = layerOffsets[lid+1] * 5;
         if (start === end) continue;
         
-        const data = new Float32Array(rectData.subarray(start, end));
+        const data = rectData.subarray(start, end);
         const buffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
         gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
@@ -558,10 +581,32 @@ function processParsedData(stats) {
             if (y2 > maxY) maxY = y2;
             
             if (net !== -1) {
+                if (net > maxNet) maxNet = net;
                 const area = Math.abs((x2 - x1) * (y2 - y1));
                 netAreas[net] = (netAreas[net] || 0) + area;
             }
         }
+    }
+
+    if (maxNet >= 0) {
+        const texWidth = 2048;
+        const texHeight = Math.ceil((maxNet + 1) / texWidth);
+        netStatesSize = [texWidth, texHeight];
+        netStateData = new Uint8Array(texWidth * texHeight); // all 0 (off)
+        
+        if (netStateTexture) gl.deleteTexture(netStateTexture);
+        netStateTexture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, netStateTexture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, texWidth, texHeight, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, netStateData);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    } else {
+        netStatesSize = [0, 0];
+        netStateData = null;
+        if (netStateTexture) gl.deleteTexture(netStateTexture);
+        netStateTexture = null;
     }
     
 
@@ -576,12 +621,16 @@ function processParsedData(stats) {
         const query = search.value.toLowerCase();
         select.innerHTML = '';
         let count = 0;
-        for (const [net, area] of sortedNets) {
+        for (const [netStr, area] of sortedNets) {
+            const net = parseInt(netStr);
             const label = `Net ${net} (Area: ${area.toLocaleString()})`;
             if (label.toLowerCase().includes(query)) {
                 const opt = document.createElement('option');
                 opt.value = net;
                 opt.innerText = label;
+                if (netStateData && net >= 0 && net < netStateData.length && netStateData[net] > 0) {
+                    opt.selected = true;
+                }
                 select.appendChild(opt);
                 count++;
                 if (count >= 1000) break; // Limit to 1000 visible
@@ -590,20 +639,63 @@ function processParsedData(stats) {
     }
 
     search.oninput = updateNetList;
+    search.onkeydown = (e) => {
+        if (e.key === 'ArrowDown' && select.options.length > 0) {
+            e.preventDefault();
+            select.focus();
+            if (select.selectedIndex === -1) {
+                select.options[0].selected = true;
+                syncNetSelection();
+            }
+        }
+    };
     updateNetList();
 
     document.getElementById('btnClearNet').onclick = () => {
-        select.value = -1;
+        select.selectedIndex = -1;
         search.value = '';
         updateNetList();
         highlightNet = -1;
+        highlightedCount = 0;
+        if (netStateData) {
+            netStateData.fill(0);
+            gl.bindTexture(gl.TEXTURE_2D, netStateTexture);
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, netStatesSize[0], netStatesSize[1], gl.RED_INTEGER, gl.UNSIGNED_BYTE, netStateData);
+        }
         requestAnimationFrame(render);
     };
 
-    select.onchange = (e) => {
-        highlightNet = parseFloat(e.target.value);
+    function syncNetSelection() {
+        if (!netStateData) return;
+        
+        // Update highlightNet for the "last clicked" or primary selection
+        highlightNet = select.value === "" ? -1 : parseFloat(select.value);
+        
+        // Sync netStateData with only the visible (filtered) options in the select element.
+        // This preserves the state of nets that are currently filtered out.
+        for (let i = 0; i < select.options.length; i++) {
+            const opt = select.options[i];
+            const net = parseInt(opt.value);
+            if (net >= 0 && net < netStateData.length) {
+                const wasSelected = netStateData[net] > 0;
+                const isSelected = opt.selected;
+                if (wasSelected !== isSelected) {
+                    netStateData[net] = isSelected ? 1 : 0; // Use bit 0 (value 1) for highlight
+                    highlightedCount += isSelected ? 1 : -1;
+                }
+            }
+        }
+        
+        gl.bindTexture(gl.TEXTURE_2D, netStateTexture);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, netStatesSize[0], netStatesSize[1], gl.RED_INTEGER, gl.UNSIGNED_BYTE, netStateData);
+        
         requestAnimationFrame(render);
-    };
+    }
+
+    select.onchange = syncNetSelection;
+    select.oninput = syncNetSelection;
+    select.onkeyup = syncNetSelection;
+    select.onclick = syncNetSelection;
 
     document.getElementById('btnToggleAll').onclick = () => {
         const anyVisible = Object.values(layers).some(l => l.visible);

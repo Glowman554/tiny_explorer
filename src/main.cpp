@@ -193,9 +193,9 @@ struct CircuitExtractor {
 
 
     void wireCells() {
-        for (int i=0; i<L_COUNT; ++i) {
+        for (int i=L_N_TERM; i<L_COUNT; ++i) {
             auto & layer = instLayers[i];
-            if (i < L_N_TERM || layer.instances.empty()) continue;
+            if (layer.instances.empty()) continue;
             buildLayerBVH(layer.instances, 0, layer.instances.size(), layer.bvh);
             int overlapCount = 0;
             collideSelf(layer.bvh, layer.instances, [&](int inst_a, int inst_b) {
@@ -248,20 +248,20 @@ struct CircuitExtractor {
                            instOffsets[link.inst_b] + link.wire_b);
         }
 
-        std::unordered_map<int, int> root2id;
-        root2id[globalDSU.find(0)] = 0; // GND
-        root2id[globalDSU.find(1)] = 1; // PWR
+        segment2flat.assign(globalDSU.p.size(), DSU::NeedsID);
+        segment2flat[globalDSU.find(0)] = 0; // GND
+        segment2flat[globalDSU.find(1)] = 1; // PWR
         
         int next_id = 2;
         const Cell& top = cells[instances[0].cell_id];
         for (auto const& [name, rIdx] : top.label2rect) {
             int root = globalDSU.find(top.rect2wire[rIdx]);
-            if (root2id.find(root) == root2id.end()) {
-                root2id[root] = next_id++;
+            if (segment2flat[root] == DSU::NeedsID) {
+                segment2flat[root] = next_id++;
             }
         }
 
-        int wireCount = globalDSU.assign_ids(segment2flat, root2id, next_id);
+        int wireCount = globalDSU.assign_ids(segment2flat, next_id);
 
         CircuitBuilder builder;
         builder.wire_n = wireCount;
@@ -313,7 +313,11 @@ struct CircuitExtractor {
                 
                 for (uint32_t ri = 0; ri < layer.rectCount; ri++) {
                     uint32_t rectIdx = layer.rectStart + ri;
-                    int flatWire = segment2flat[instOffsets[ii] + cell.rect2wire[rectIdx]];
+                    int flatWire = -1; // some rects don't have wire_id (NWELL)
+                    int localWire = cell.rect2wire[rectIdx];
+                    if (localWire >= 0) {
+                        flatWire = segment2flat[instOffsets[ii] + localWire];
+                    }
                     Rect r = inst.tform.apply(cell.rects[rectIdx]);
                     layerTemp.push_back({r, flatWire});
                 }
@@ -353,12 +357,9 @@ extern "C" {
         }
     }
 
-    void wasm_set_pdk(const char* pdk) {
-        if (g_extractor) g_extractor->pdk = pdk;
-    }
-
-    bool wasm_load_file(const char* path) {
+    bool wasm_load_file(const char* path, const char* pdk) {
         if (!g_extractor) return false;
+        g_extractor->pdk = pdk;
         return g_extractor->load(path);
     }
 

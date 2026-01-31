@@ -91,7 +91,6 @@ pub fn build(b: *std.Build) void {
             "wasm_get_rect_data_size",
             "wasm_get_layer_offsets_ptr",
             "wasm_get_layer_offsets_size",
-            "wasm_set_pdk",
         };
         exe.entry = .disabled;
         exe.root_module.strip = true;
