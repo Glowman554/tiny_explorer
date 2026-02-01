@@ -69,11 +69,11 @@ struct CircuitExtractor {
     };
     std::array<InstLayer, L_COUNT> instLayers;
     Circuit circuit;
-    CircuitMetadata circuitMeta;
 
     std::vector<int> instOffsets;
     std::vector<int> segment2flat;
     DSU globalDSU;
+    std::vector<std::pair<int, std::string>> labeledWires;
 
     std::vector<RectWire> flatRects;
     std::array<uint32_t, L_COUNT + 1> flatLayerOffsets;
@@ -92,11 +92,6 @@ struct CircuitExtractor {
         if (!top) return false;
         preprocessCells();
         const Cell topCell = cells[gcell2id[top]];
-        printf("Top cell labels: ");
-        for (auto const& [name, rIdx] : topCell.label2rect) {
-            printf("%s ", name.c_str());
-        }
-        printf("\n");
         if (topCell.groundRect == -1 || topCell.powerRect == -1) {
             fprintf(stderr, "Error: missing power/ground labels in top cell\n");
             return false;
@@ -259,23 +254,12 @@ struct CircuitExtractor {
             if (segment2flat[root] == DSU::NeedsID) {
                 segment2flat[root] = next_id++;
             }
+            labeledWires.push_back({segment2flat[root], name});
         }
 
         int wireCount = globalDSU.assign_ids(segment2flat, next_id);
 
         CircuitBuilder builder;
-        builder.wire_n = wireCount;
-        builder.wire_names.assign(wireCount, "");
-        for (auto const& [name, rIdx] : top.label2rect) {
-            builder.wire_names[segment2flat[top.rect2wire[rIdx]]] = name;
-        }
-        builder.wire_names[0] = "GND";
-        builder.wire_names[1] = "PWR";
-
-        for (int i = 0; i < wireCount; i++) {
-            if (builder.wire_names[i].empty()) builder.wire_names[i] = "w" + std::to_string(i);
-        }
-
         for (size_t i = 0; i < instances.size(); i++) {
             const Cell& cell = cells[instances[i].cell_id];
             int offset = instOffsets[i];
@@ -286,7 +270,11 @@ struct CircuitExtractor {
             }
         }
 
-        circuit = builder.build(&circuitMeta);
+        circuit = builder.build();
+        for (auto const& lw : labeledWires) {
+            printf("Net %d (%s): %zu gates, %zu terms\n", lw.first, lw.second.c_str(), 
+                   circuit.wire_gates[lw.first].size(), circuit.wire_terms[lw.first].size());
+        }
         printf("Global Netlist Statistics:\n  Segments: %d\n  Wires: %d\n  FETs: %zu\n", 
                totalSegments, wireCount, circuit.fet_n());
 
@@ -302,7 +290,7 @@ struct CircuitExtractor {
         std::vector<RectWire> layerTemp;
         for (int li = 0; li < L_COUNT; li++) {
             flatLayerOffsets[li] = (uint32_t)flatRects.size();
-            if (li == L_DIFF || li == L_CHANNEL) continue;
+            if (li == L_DIFF || li == L_NWELL) continue;
             
             layerTemp.clear();
             for (size_t ii = 0; ii < instances.size(); ii++) {
@@ -383,18 +371,190 @@ extern "C" {
     uint32_t wasm_get_layer_offsets_size() {
         return g_extractor ? (uint32_t)(g_extractor->flatLayerOffsets.size() * sizeof(uint32_t)) : 0;
     }
+
+    // Circuit Simulation API
+    uint32_t wasm_circuit_get_wire_count() {
+        return g_extractor ? (uint32_t)g_extractor->circuit.wire_n() : 0;
+    }
+
+    uint32_t wasm_circuit_get_labeled_count() {
+        return g_extractor ? (uint32_t)g_extractor->labeledWires.size() : 0;
+    }
+
+    int wasm_circuit_get_labeled_id(uint32_t idx) {
+        if (g_extractor && idx < g_extractor->labeledWires.size()) {
+            return g_extractor->labeledWires[idx].first;
+        }
+        return -1;
+    }
+
+    const char* wasm_circuit_get_labeled_name(uint32_t idx) {
+        if (g_extractor && idx < g_extractor->labeledWires.size()) {
+            return g_extractor->labeledWires[idx].second.c_str();
+        }
+        return nullptr;
+    }
+
+    uint32_t wasm_circuit_get_fet_count() {
+        return g_extractor ? (uint32_t)g_extractor->circuit.fet_n() : 0;
+    }
+
+    void wasm_circuit_set_input(uint32_t wire, uint32_t val) {
+        if (g_extractor && wire < g_extractor->circuit.wire_n()) {
+            g_extractor->circuit.set_input(wire, (uint8_t)val);
+        }
+    }
+
+    int wasm_circuit_run_wave() {
+        return g_extractor ? g_extractor->circuit.run_wave() : 0;
+    }
+
+    void* wasm_circuit_get_wire_data_ptr() {
+        return g_extractor ? g_extractor->circuit.wire_data.data() : nullptr;
+    }
+
+    void* wasm_circuit_get_fet_on_ptr() {
+        return g_extractor ? g_extractor->circuit.fet_on.data() : nullptr;
+    }
+
+    int wasm_circuit_get_short_count() {
+        return g_extractor ? g_extractor->circuit.short_count : 0;
+    }
 }
 
 #ifdef WASM
 extern "C" int main() { return 0; }
 #endif
 
+
+struct VGASimulator {
+
+    VGASimulator(Circuit& c, const std::vector<std::pair<int, std::string>>& labels) 
+        : circuit(c) {
+        for (const auto& [id, name] : labels) {
+            name2id[name] = id;
+        }
+        
+        // Find essential pins
+        clk = getPin("clk");
+        rst_n = getPin("rst_n");
+        ena = getPin("ena");
+        
+        for (int i = 0; i < 8; ++i) {
+            out_pins[i] = getPin("uo_out[" + std::to_string(i) + "]");
+        }
+
+        vga_buffer.assign(width * height * 3, 0);
+    }
+
+    bool isValid() const { return clk != -1 && rst_n != -1; }
+
+    void run(int max_ticks = 1000000) {
+        if (!isValid()) return;
+        
+        printf("VGA Sim: clk=%d, rst_n=%d, outputs=[", clk, rst_n);
+        for(int i=0; i<8; ++i) printf("%d%s", out_pins[i], i==7 ? "]\n" : ",");
+
+        if (ena != -1) circuit.set_input(ena, 1);
+        
+        printf("Resetting...\n");
+        circuit.set_input(rst_n, 0);
+        for (int i = 0; i < 10; ++i) tick();
+        
+        printf("Running simulation...\n");
+        circuit.set_input(rst_n, 1);
+        
+        auto t_start = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < max_ticks; ++i) {
+            tick();
+            if ((i + 1) % 10000 == 0) {
+                auto t_now = std::chrono::high_resolution_clock::now();
+                double elapsed = std::chrono::duration<double>(t_now - t_start).count();
+                uint8_t out = 0;
+                for (int j=0; j<8; j++) {
+                    if (out_pins[j] != -1 && (circuit.wire_data[out_pins[j]] & Circuit::V_MASK)) out |= (1 << j);
+                }
+                printf("  Tick %d (%.0f px/s), ray at %d,%d, out=%02x\n", i + 1, (i + 1) / elapsed, ray_x, ray_y, out);
+                savePPM("vga.ppm");
+            }
+        }
+        savePPM("vga.ppm");
+    }
+
+    int getPin(const std::string& name) {
+        return name2id.count(name) ? name2id.at(name) : -1;
+    }
+
+    bool settle(int max_settle_waves=100) {
+        int wave = 0;
+        while (!circuit.dirty_wires.empty() && wave < max_settle_waves) {
+            circuit.run_wave();
+            ++wave;
+        }
+        return circuit.dirty_wires.empty();
+    };
+
+
+    void tick() {
+        circuit.set_input(clk, 0); settle();
+        circuit.set_input(clk, 1); settle();
+
+        // Sample outputs (assuming TinyTapeout pinout)
+        // uo_out[0..2] = R1, G1, B1
+        // uo_out[3] = VSync
+        // uo_out[4..6] = R0, G0, B0
+        // uo_out[7] = HSync
+        
+        auto val = [&](int pin_idx) {
+            if (out_pins[pin_idx] == -1) return false;
+            return (bool)(circuit.wire_data[out_pins[pin_idx]] & Circuit::V_MASK);
+        };
+
+        bool r1 = val(0), g1 = val(1), b1 = val(2), vsync = val(3);
+        bool r0 = val(4), g0 = val(5), b0 = val(6), hsync = val(7);
+
+        // Sync logic
+        if (!hsync && last_hsync) { ray_x = 0; ray_y++; }
+        if (!vsync && last_vsync) { ray_x = 0; ray_y = 0; }
+        
+        if (ray_x < width && ray_y < height) {
+            int idx = (ray_y * width + ray_x) * 3;
+            vga_buffer[idx + 0] = (r1 * 2 + r0) * 85;
+            vga_buffer[idx + 1] = (g1 * 2 + g0) * 85;
+            vga_buffer[idx + 2] = (b1 * 2 + b0) * 85;
+        }
+        
+        ray_x++;
+        last_hsync = hsync;
+        last_vsync = vsync;
+    }
+
+    void savePPM(const char* filename) {
+        FILE* f = fopen(filename, "wb");
+        if (!f) return;
+        fprintf(f, "P6\n%d %d\n255\n", width, height);
+        fwrite(vga_buffer.data(), 1, vga_buffer.size(), f);
+        fclose(f);
+    }
+
+    Circuit& circuit;
+    std::map<std::string, int> name2id;
+    int clk, rst_n, ena;
+    int out_pins[8];
+    
+    int width = 1000, height = 600;
+    int ray_x = 0, ray_y = 0;
+    bool last_hsync = false, last_vsync = false;
+    std::vector<uint8_t> vga_buffer;
+};
+
 #ifndef WASM
 int main() {
     wasm_arena_init(1);
     //const char * path = "gds/ihp-25a/tt_um_znah_vga_ca.gds", *pdk = "ihp-sg13g2";
     //const char * path = "gds/sky-25b/tt_um_pongsagon_tinygpu_v2.oas", *pdk = "sky130A";
-    const char * path = "gds/09/tt_um_rejunity_atari2600.gds", *pdk = "sky130A";
+    //const char * path = "gds/09/tt_um_rejunity_atari2600.gds", *pdk = "sky130A";
+    const char * path = "gds/09/tt_um_znah_vga_ca.gds", *pdk = "sky130A";
     //const char * path = "gds/gf-0p2/tt_um_2048_vga_game.oas", *pdk = "gf180mcuD";
     printf("Loading: %s\n", path);
 
@@ -415,6 +575,14 @@ int main() {
     printf("Processing : %.2f ms\n", d_proc.count());
     printf("Total Time : %.2f ms\n", (d_load + d_proc).count());
     printf("Arena usage: %.2f MB\n", (float)wasm_arena_get_usage() / (1024*1024));
+
+    VGASimulator sim(proc.circuit, proc.labeledWires);
+    if (sim.isValid()) {
+        sim.run(380000);
+    } else {
+        printf("No VGA pins detected, skipping simulation.\n");
+    }
+
     return 0;
 }
 #endif

@@ -91,33 +91,30 @@ const FS_SOURCE = `#version 300 es
 `;
 
 // Standard GDS Layer Colors (approximate)
-const LAYER_COLORS = [
-    [1.0, 0.5, 0.0, 1.0], // 0: ERRORS (Orange)
-    [0.3, 0.1, 0.2, 1.0], // 1: NWELL (pale yellow)
-    [0.2, 0.8, 0.2, 1.0], // 2: DIFF (skip/invisible usually)
-    [0.0, 0.0, 0.0, 0.0], // 3: CHANNEL (skip/invisible usually)
-    [0.2, 0.6, 0.2, 1.0], // 4: N_TERM (lime green)
-    [0.8, 0.8, 0.2, 1.0], // 5: P_TERM (yellow-ish)
-    [0.8, 0.2, 0.2, 1.0], // 6: POLY (red)
-    [0.5, 0.5, 0.5, 1.0], // 7: LICON (grey)
-    [0.3, 0.3, 0.9, 1.0], // 8: LI1 (blue)
-    [0.6, 0.6, 0.6, 1.0], // 9: MCON
-    [0.7, 0.4, 0.8, 1.0], // 10: MET1 (purple)
-    [0.8, 0.8, 0.8, 1.0], // 11: VIA1
-    [0.4, 0.8, 0.8, 1.0], // 12: MET2 (cyan)
-    [0.9, 0.9, 0.9, 1.0], // 13: VIA2
-    [0.8, 0.8, 0.2, 1.0], // 14: MET3
-    [0.9, 0.9, 0.9, 1.0], // 15: VIA3
-    [0.2, 0.6, 0.2, 1.0], // 16: MET4
-    [0.9, 0.9, 0.9, 1.0], // 17: VIA4
-    [0.6, 0.2, 0.6, 1.0], // 18: MET5
+let z = 0, h=0;
+const h_met=200, h_via=500;
+const LAYER_CONFIG = [
+    { name: "ERRORS",  color: [1.0, 0.5, 0.0, 1.0], z: 5000, h: 500 },
+    { name: "NWELL",   color: [0.3, 0.1, 0.2, 1.0], z: z,    h: h=100 },
+    { name: "DIFF",    color: [0.2, 0.8, 0.2, 1.0], z: z+=h, h },
+    { name: "CHANNEL", color: [0.8, 0.6, 0.6, 1.0], z: z,    h },
+    { name: "N_TERM",  color: [0.2, 0.6, 0.2, 1.0], z: z,    h },
+    { name: "P_TERM",  color: [0.8, 0.8, 0.2, 1.0], z: z,    h },
+    { name: "POLY",    color: [0.8, 0.2, 0.2, 1.0], z: z+=h, h },
+    { name: "LICON",   color: [0.5, 0.5, 0.5, 1.0], z: z,    h: h=600 },
+    { name: "LI1",     color: [0.3, 0.3, 0.9, 1.0], z: z+=h, h: h=h_met },
+    { name: "MCON",    color: [0.6, 0.6, 0.6, 1.0], z: z+=h, h: h=h_via },
+    { name: "MET1",    color: [0.7, 0.4, 0.8, 1.0], z: z+=h, h: h=h_met },
+    { name: "VIA1",    color: [0.8, 0.8, 0.8, 1.0], z: z+=h, h: h=h_via },
+    { name: "MET2",    color: [0.4, 0.8, 0.8, 1.0], z: z+=h, h: h=h_met },
+    { name: "VIA2",    color: [0.9, 0.9, 0.9, 1.0], z: z+=h, h: h=h_via },
+    { name: "MET3",    color: [0.8, 0.8, 0.2, 1.0], z: z+=h, h: h=h_met },
+    { name: "VIA3",    color: [0.9, 0.9, 0.9, 1.0], z: z+=h, h: h=h_via },
+    { name: "MET4",    color: [0.2, 0.6, 0.2, 1.0], z: z+=h, h: h=h_met },
+    { name: "VIA4",    color: [0.9, 0.9, 0.9, 1.0], z: z+=h, h: h=h_via },
+    { name: "MET5",    color: [0.6, 0.2, 0.6, 1.0], z: z+=h, h: h=h_met },
 ];
-
-const LAYER_NAMES = [
-    "ERRORS", "NWELL", "DIFF", "CHANNEL", "N_TERM", "P_TERM", "POLY", "LICON", 
-    "LI1", "MCON", "MET1", "VIA1", "MET2", "VIA2", "MET3", "VIA3", "MET4", "VIA4", "MET5"
-];
-
+console.log(LAYER_CONFIG);
 
 let gl;
 let program;
@@ -132,6 +129,9 @@ let view = {
 let isDragging = false;
 let lastMouse = { x: 0, y: 0 };
 let minX = 0, minY = 0, maxX = 0, maxY = 0, isLoaded = false;
+let worker = null;
+let wireNames = [];
+let netAreas = {};
 
 function updateBaseScale() {
     if (!isLoaded) return;
@@ -153,49 +153,8 @@ function resize() {
 }
 
 function updateLayerHeights() {
-    const width = maxX - minX;
-    const baseH = 500.0;//width * 0.001;
-    let currentZ = 0;
-    
-    // Sort lids ascending to calculate stacking
-    const lids = Object.keys(layers).map(Number).sort((a,b)=>a-b);
-    
-    let termZ = -1, termTopZ = -1;
-    lids.forEach(lid => {
-        let h = baseH; // default
-        const name = (LAYER_NAMES[lid] || "").toUpperCase();
-        if (lid === 0) { // ERRORS
-            h = baseH * 2.0; // Make errors thick
-        } else if (name.includes("VIA") || name.includes("CON") || name === "LICON" || name === "MCON") {
-            h = baseH * 1.0; // VIAs are taller
-        } else if (name.includes("MET") || name.includes("LI")) {
-            h = baseH * 0.4; // Metals are flatter
-        } else {
-            h = baseH * 0.2; // Base layers are very flat
-        }
-        
-        if (lid === 0) {
-            // ERRORS/Markers: put them slightly above the highest layer at the end
-            // We'll calculate their Z after the loop to be sure
-            layerSpecs[lid] = { z: -1, h: h }; 
-        } else if (name.includes("TERM")) {
-            if (termZ === -1) {
-                termZ = currentZ;
-                termTopZ = currentZ + h;
-                currentZ += h;
-            }
-            layerSpecs[lid] = { z: termZ, h: h };
-        } else if (name === "LICON" && termTopZ !== -1) {
-            layerSpecs[lid] = { z: termTopZ, h: (currentZ + h) - termTopZ };
-            currentZ += h;
-        } else {
-            layerSpecs[lid] = { z: currentZ, h: h };
-            currentZ += h;
-        }
-    });
-    
-    if (layerSpecs[0]) {
-        layerSpecs[0].z = currentZ + baseH;
+    for (let i = 0; i < LAYER_CONFIG.length; i++) {
+        layerSpecs[i] = { z: LAYER_CONFIG[i].z, h: LAYER_CONFIG[i].h };
     }
 }
 
@@ -448,14 +407,18 @@ function render() {
         
         // Solo logic
         if (soloLayerId !== null) {
-            if (String(lid) !== String(soloLayerId)) continue;
+            const isActive = (lid >= 3 && lid <= 5);
+            const isSoloActive = (soloLayerId >= 3 && soloLayerId <= 5);
+            if (isActive && isSoloActive) { /* match */ }
+            else if (String(lid) !== String(soloLayerId)) continue;
         } else {
             if (!layer.visible) continue;
         }
 
         gl.uniform1f(u_alpha, baseGlobalAlpha);
 
-        const name = LAYER_NAMES[lid] || "";
+        const config = LAYER_CONFIG[lid] || { name: "", color: [0.5, 0.5, 0.5, 1.0] };
+        const name = config.name;
         const isExempt = name.toUpperCase().endsWith("TERM") || name.toUpperCase() === "LICON";
         gl.uniform1f(u_isExemptLayer, isExempt ? 1.0 : 0.0);
         
@@ -464,7 +427,7 @@ function render() {
         gl.uniform1f(u_layerZ, spec.z);
         gl.uniform1f(u_thickness, spec.h);
 
-        const color = LAYER_COLORS[lid] || [0.5, 0.5, 0.5, 1.0];
+        const color = config.color;
         const u_color = gl.getUniformLocation(program, "u_color");
         gl.uniform4fv(u_color, color);
 
@@ -522,10 +485,15 @@ async function loadGDS(url, pdk) {
             log(`Total Time: ${stats.totalTime.toFixed(2)} ms\n`);
             log(`WASM Memory: ${stats.memMB} MB\n`);
             log('='.repeat(30) + '\n');
-            processParsedData(stats);
+            processParsedData(stats, data.wireNames);
             setTimeout(() => {
                 document.getElementById('logContainer').classList.remove('visible');
             }, 2000); // Give a bit more time to read the stats
+        } else if (data.type === 'callResult') {
+            if (data.wireData) {
+                updateNetStatesFromWireData(data.wireData);
+                updateCircuitUI(data.wireData);
+            }
         }
     };
 
@@ -533,8 +501,8 @@ async function loadGDS(url, pdk) {
     worker.postMessage({ type: 'start', gdsUrl: normalizedUrl, pdk: pdk });
 }
 
-let worker;
-function processParsedData(stats) {
+function processParsedData(stats, wireNamesIn) {
+    wireNames = wireNamesIn || [];
     const { rectData, layerOffsets } = stats;
     
     if (!rectData || !layerOffsets) {
@@ -616,6 +584,9 @@ function processParsedData(stats) {
     
     const select = document.getElementById('netSelect');
     const search = document.getElementById('netSearch');
+    
+    const netToName = {};
+    wireNames.forEach(w => netToName[w.id] = w.name);
 
     function updateNetList() {
         const query = search.value.toLowerCase();
@@ -623,7 +594,9 @@ function processParsedData(stats) {
         let count = 0;
         for (const [netStr, area] of sortedNets) {
             const net = parseInt(netStr);
-            const label = `Net ${net} (Area: ${area.toLocaleString()})`;
+            const name = netToName[net];
+            const label = name ? `${name} (Net ${net})` : `Net ${net} (Area: ${area.toLocaleString()})`;
+            
             if (label.toLowerCase().includes(query)) {
                 const opt = document.createElement('option');
                 opt.value = net;
@@ -715,50 +688,134 @@ function processParsedData(stats) {
     // Now that heights are known, add layer controls in lid-descending order
     sortedLids.sort((a, b) => Number(b) - Number(a));
     sortedLids.forEach(lid => {
+        if (lid == 3 || lid == 4) return; // Handled by FET group (LID 5)
         const ui = addLayerControl(lid);
         layers[lid].input = ui.input;
         layers[lid].div = ui.div;
+        if (lid == 5) {
+            layers[3].input = layers[4].input = ui.input;
+            layers[3].div = layers[4].div = ui.div;
+        }
     });
 
     document.getElementById('loading').style.display = 'none';
     updateLayerUI();
+    updateCircuitUI();
+    requestAnimationFrame(render);
+}
+
+function updateCircuitUI(wireData) {
+    const monitor = document.getElementById('circuitMonitor');
+    if (!monitor) return;
+    if (wireNames.length === 0) {
+        monitor.innerHTML = '<div style="padding:10px; color:#666;">No circuit data</div>';
+        return;
+    }
+
+    let html = '<div class="monitor-header">Circuit Monitoring</div>';
+    html += '<div class="monitor-controls"><button onclick="stepCircuit()">Step Wave</button></div>';
+    html += '<div class="monitor-list">';
+    
+    // Show top-level nets (labeled ones)
+    wireNames.forEach(({id, name}) => {
+        const state = (wireData) ? wireData[id] : (netStateData ? netStateData[id] : 0);
+        const stateClass = state === 1 ? 'state-high' : 'state-low';
+        const label = state === 1 ? 'H' : 'L';
+        html += `
+            <div class="monitor-row">
+                <span class="wire-name">${name}</span>
+                <span class="wire-state ${stateClass}" onclick="toggleWire(${id}, ${state})">${label}</span>
+            </div>
+        `;
+    });
+    html += '</div>';
+    monitor.innerHTML = html;
+}
+
+window.toggleWire = (id, currentState) => {
+    const newVal = currentState === 1 ? 0 : 1;
+    callWasm('wasm_circuit_set_input', [id, newVal], ['wireData']);
+};
+
+window.stepCircuit = () => {
+    callWasm('wasm_circuit_run_wave', [], ['wireData']);
+};
+
+function callWasm(name, args, returnArrays) {
+    if (!worker) return;
+    worker.postMessage({ type: 'call', name, args, returnArrays });
+}
+
+function updateNetStatesFromWireData(wireData) {
+    if (!netStateData) return;
+    // Update local netStateData for visualization
+    for (let i = 0; i < wireData.length; i++) {
+        if (i < netStateData.length) {
+            netStateData[i] = wireData[i];
+        }
+    }
+    // Update WebGL texture
+    gl.bindTexture(gl.TEXTURE_2D, netStateTexture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, netStatesSize[0], netStatesSize[1], gl.RED_INTEGER, gl.UNSIGNED_BYTE, netStateData);
     requestAnimationFrame(render);
 }
 
 function addLayerControl(lid) {
     const div = document.createElement('div');
     div.className = 'layer-toggle';
-    
+    const config = LAYER_CONFIG[lid] || { name: "Layer " + lid, color: [0.5, 0.5, 0.5] };
+
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.checked = true;
     input.onchange = (e) => {
         layers[lid].visible = e.target.checked;
-        requestAnimationFrame(render);
-    };
-    
-    const color = document.createElement('span');
-    color.className = 'layer-color';
-    const c = LAYER_COLORS[lid] || [0.5, 0.5, 0.5];
-    color.style.backgroundColor = `rgba(${c[0]*255}, ${c[1]*255}, ${c[2]*255}, 1)`;
-    
-    const label = document.createElement('span');
-    const name = LAYER_NAMES[lid] || ("Layer " + lid);
-    label.innerText = name;
-    label.style.cursor = 'pointer';
-    label.onclick = () => {
-        if (soloLayerId === lid) {
-            soloLayerId = null;
-        } else {
-            soloLayerId = lid;
+        if (lid == 5) {
+            layers[3].visible = e.target.checked;
+            layers[4].visible = e.target.checked;
         }
-        updateLayerUI();
         requestAnimationFrame(render);
     };
-    
     div.appendChild(input);
-    div.appendChild(color);
-    div.appendChild(label);
+
+    const makeSwatch = (id) => {
+        const config = LAYER_CONFIG[id];
+        if (!config) return document.createElement('span');
+        const c = config.color;
+        const s = document.createElement('span');
+        s.className = 'layer-color';
+        s.style.backgroundColor = `rgba(${c[0]*255}, ${c[1]*255}, ${c[2]*255}, 1)`;
+        s.style.cursor = 'pointer';
+        s.title = config.name;
+        s.onclick = () => {
+            soloLayerId = (soloLayerId === id) ? null : id;
+            updateLayerUI();
+            requestAnimationFrame(render);
+        };
+        return s;
+    };
+
+    const makeLabel = (id, text) => {
+        const l = document.createElement('span');
+        l.innerText = text;
+        l.style.cursor = 'pointer';
+        l.onclick = () => {
+            soloLayerId = (soloLayerId === id) ? null : id;
+            updateLayerUI();
+            requestAnimationFrame(render);
+        };
+        return l;
+    };
+
+    if (lid == 5) {
+        div.appendChild(makeSwatch(4)); // N_TERM
+        div.appendChild(makeSwatch(3)); // CHANNEL
+        div.appendChild(makeSwatch(5)); // P_TERM
+        div.appendChild(makeLabel(5, " FET"));
+    } else {
+        div.appendChild(makeSwatch(lid));
+        div.appendChild(makeLabel(lid, config.name));
+    }
     
     document.getElementById('layerList').appendChild(div);
     return { input, div };
@@ -767,8 +824,11 @@ function addLayerControl(lid) {
 function updateLayerUI() {
     for (const lid in layers) {
         const layer = layers[lid];
+        if (!layer.div) continue;
         if (soloLayerId !== null) {
-            if (String(lid) === String(soloLayerId)) {
+            const isActive = (lid >= 3 && lid <= 5);
+            const isSoloActive = (soloLayerId >= 3 && soloLayerId <= 5);
+            if ((isActive && isSoloActive) || (String(lid) === String(soloLayerId))) {
                 layer.div.style.opacity = "1.0";
             } else {
                 layer.div.style.opacity = "0.3";

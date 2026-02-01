@@ -50,7 +50,12 @@ inline void resolveLabelsGdstk(const gdstk::Cell* gcell, Cell& cell, const std::
             foundRectIdx = idx;
             return false; // stop search
         }, touches);
-        if (foundRectIdx == -1) continue;
+        if (foundRectIdx == -1) {
+            printf("  Label '%s' at (%.2f, %.2f) on layer %d:%d - NO RECT FOUND\n", 
+                   label->text, label->origin.x, label->origin.y, 
+                   gdstk::get_layer(label->tag), gdstk::get_type(label->tag));
+            continue;
+        }
 
         if (cell.label2rect.count(label->text)) {
             cell.wireDSU.unite(cell.label2rect[label->text], foundRectIdx);

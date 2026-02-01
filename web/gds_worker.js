@@ -25,6 +25,26 @@ function allocString(str, instance) {
     return ptr;
 }
 
+function getString(ptr) {
+    if (!ptr) return null;
+    const buf = new Uint8Array(instance.exports.memory.buffer);
+    let end = ptr;
+    while (buf[end]) end++;
+    return new TextDecoder().decode(buf.slice(ptr, end));
+}
+
+function getWireNames() {
+    const count = instance.exports.wasm_circuit_get_labeled_count();
+    const labeled = [];
+    for (let i = 0; i < count; i++) {
+        labeled.push({
+            id: instance.exports.wasm_circuit_get_labeled_id(i),
+            name: getString(instance.exports.wasm_circuit_get_labeled_name(i))
+        });
+    }
+    return labeled;
+}
+
 async function runGdsTask(gdsUrl, pdk, options = {}) {
     logBuffer = "";
     const { returnGeometry = true } = options;
@@ -141,7 +161,8 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
             }
         }
 
-        postMessage({ type: 'done', stats, file: gdsUrl, pdk }, transferables);
+        const wireNames = getWireNames();
+        postMessage({ type: 'done', stats, file: gdsUrl, pdk, wireNames }, transferables);
 
     } catch (err) {
         postMessage({ type: 'error', file: gdsUrl, message: err.message });
@@ -151,5 +172,40 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
 onmessage = function(e) {
     if (e.data.type === 'start') {
         runGdsTask(e.data.gdsUrl, e.data.pdk, e.data.options || {});
+    } else if (e.data.type === 'call') {
+        const { name, args, returnArrays } = e.data;
+        const fn = instance.exports[name];
+        if (!fn) {
+            postMessage({ type: 'error', message: `WASM function not found: ${name}` });
+            return;
+        }
+        const result = fn(...(args || []));
+        
+        const payload = { type: 'callResult', name, result };
+        const transferables = [];
+        
+        if (returnArrays) {
+            returnArrays.forEach(arrName => {
+                if (arrName === 'wireData') {
+                    const ptr = instance.exports.wasm_circuit_get_wire_data_ptr();
+                    const count = instance.exports.wasm_circuit_get_wire_count();
+                    if (ptr) {
+                        const data = new Uint8Array(instance.exports.memory.buffer, ptr, count).slice();
+                        payload.wireData = data;
+                        transferables.push(data.buffer);
+                    }
+                }
+                if (arrName === 'fetOn') {
+                    const ptr = instance.exports.wasm_circuit_get_fet_on_ptr();
+                    const count = instance.exports.wasm_circuit_get_fet_count();
+                    if (ptr) {
+                        const data = new Uint8Array(instance.exports.memory.buffer, ptr, count).slice();
+                        payload.fetOn = data;
+                        transferables.push(data.buffer);
+                    }
+                }
+            });
+        }
+        postMessage(payload, transferables);
     }
 };

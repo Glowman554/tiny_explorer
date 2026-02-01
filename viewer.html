@@ -62,6 +62,27 @@
             font-weight: bold; cursor: pointer;
         }
         #btnLogTab:hover { background: rgba(30, 30, 30, 0.9); border-color: #666; }
+        
+        #circuitMonitor {
+            position: absolute; top: 10px; right: 10px;
+            background: rgba(0, 0, 0, 0.85); padding: 12px;
+            border-radius: 8px; border: 1px solid #444;
+            width: 280px; max-height: 400px; overflow-y: auto;
+            pointer-events: auto; font-size: 13px;
+        }
+        .monitor-header { font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px; color: #0f0; }
+        .monitor-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .wire-name { color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 10px; }
+        .wire-state { 
+            width: 30px; height: 20px; line-height: 20px; text-align: center;
+            border-radius: 4px; font-weight: bold; cursor: pointer;
+            transition: all 0.2s;
+        }
+        .state-low { background: #300; color: #f00; border: 1px solid #600; }
+        .state-high { background: #030; color: #0f0; border: 1px solid #060; }
+        .state-x { background: #330; color: #ff0; border: 1px solid #660; }
+        .monitor-controls { display: flex; gap: 5px; margin-bottom: 10px; }
+        .monitor-controls button { flex: 1; padding: 4px; font-size: 11px; }
     </style>
 </head>
 <body>
@@ -97,6 +118,7 @@
         </div>
 
     </div>
+    <div id="circuitMonitor"></div>
     <pre id="logContainer"></pre>
     <button id="btnLogTab">LOG</button>
 

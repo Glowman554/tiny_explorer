@@ -1,10 +1,10 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <vector>
-#include <string>
 #include <tuple>
 
 struct FET {
@@ -213,44 +213,17 @@ struct Circuit {
     }
 };
 
-struct CircuitMetadata {
-    std::vector<std::string> wire_names;
-    std::vector<std::string> fet_scopes;
-};
 
 struct CircuitBuilder {
     std::vector<FET> fets;
-    std::vector<std::string> fet_scopes;
     int wire_n = 2; // VGND, VPWR
-    std::vector<std::string> wire_names = {"GND", "PWR"};
-    std::string current_prefix;
-
-    struct Scope {
-        CircuitBuilder& b;
-        std::string old;
-        Scope(CircuitBuilder& b, const char* name) : b(b), old(b.current_prefix) {
-            if (name) b.current_prefix += name + std::string("/");
-        }
-        ~Scope() { b.current_prefix = old; }
-    };
-
-    int add_wire(const char* name = nullptr) {
-        int id = wire_n++;
-        if (name) wire_names.push_back(current_prefix + name);
-        else wire_names.push_back(current_prefix + "w" + std::to_string(id));
-        return id;
-    }
 
     void add_fet(int g, int t0, int t1, uint8_t type) {
         fets.push_back({g, {t0, t1}, type});
-        fet_scopes.push_back(current_prefix);
+        wire_n = std::max({wire_n-1, g, t0, t1}) + 1;
     }
 
-    Circuit build(CircuitMetadata* meta = nullptr) {
-        if (meta) {
-            meta->wire_names = wire_names;
-            meta->fet_scopes = fet_scopes;
-        }
+    Circuit build() {
         Circuit c;
         c.fixed_wire_n = 2;
         c.wire_data.assign(wire_n, 0);
