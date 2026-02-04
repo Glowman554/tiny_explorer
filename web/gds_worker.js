@@ -121,8 +121,13 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
         const procTime = performance.now() - procStart;
         
         const totalTime = performance.now() - startTime;
-        const arenaUsage = instance.exports.wasm_arena_get_usage ? Number(instance.exports.wasm_arena_get_usage()) : 0;
-        const memMB = (arenaUsage > 0 ? arenaUsage : instance.exports.memory.buffer.byteLength) / 1024 / 1024;
+        const memMB = instance.exports.memory.buffer.byteLength / 1024 / 1024;
+
+        log(`\n--- Stats ---\n`);
+        log(`Load time: ${loadTime.toFixed(2)}ms\n`);
+        log(`Process time: ${procTime.toFixed(2)}ms\n`);
+        log(`Total wall time: ${totalTime.toFixed(2)}ms\n`);
+        log(`Memory usage: ${memMB.toFixed(2)}MB\n`);
 
         const stats = {
             totalBytes,

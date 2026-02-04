@@ -20,6 +20,10 @@ struct FET {
 struct Queue {
     std::vector<uint32_t> data;
     size_t head = 0, tail = 0, mask = 0;
+
+    uint32_t& operator[](size_t i) { return data[(head + i) & mask]; }
+    const uint32_t& operator[](size_t i) const { return data[(head + i) & mask]; }
+
     void push_back(uint32_t w) { data[tail] = w; tail = (tail + 1) & mask; }
     uint32_t front() { return data[head]; }
     uint32_t pop_front() { 
@@ -98,6 +102,8 @@ struct Circuit {
     
     // Wire data bits: 0=value, 1=S_DIRTY, 2=S_VISITED
     enum { V_MASK = 1, S_DIRTY = 2, S_VISITED = 4 };
+    static constexpr uint32_t STOP_MARKER = 0xFFFFFFFF;
+
     // State of each wire (0/1 value + flags). Indexed by wire_index.
     std::vector<uint8_t> wire_data;
     
@@ -145,10 +151,9 @@ struct Circuit {
 
     int run_wave() {
         if (dirty_wires.empty()) return 0;
-        const uint32_t stop = -1;
-        dirty_wires.push_back(stop);
+        dirty_wires.push_back(STOP_MARKER);
         int step_count = 0;
-        while (dirty_wires.front() != stop) {
+        while (dirty_wires.front() != STOP_MARKER) {
             step();
             ++step_count;
         }
@@ -157,18 +162,18 @@ struct Circuit {
     }
 
     bool step() {
-        uint32_t start_wire = -1;
+        uint32_t start_wire = STOP_MARKER;
         uint8_t* wire_states = wire_data.data();
         while (!dirty_wires.empty()) {
             uint32_t wire = dirty_wires.front();
-            if (wire == (uint32_t)-1) break;
+            if (wire == STOP_MARKER) break;
             dirty_wires.pop_front();
             if ((wire_states[wire] & S_DIRTY)) {
                 start_wire = wire;
                 break;
             }
         }
-        if (start_wire == (uint32_t)-1) return false;
+        if (start_wire == STOP_MARKER) return false;
 
         visited_n = 0;
         wire_states[start_wire] |= S_VISITED;
@@ -187,7 +192,7 @@ struct Circuit {
                 if (!fet_states[peer.fi]) continue;
                 uint32_t other = peer.other;
                 uint8_t other_state = wire_states[other];
-                if (other < 2) {
+                if (other < 2) { // is power wire
                     driven_mask |= (1 << (other_state & V_MASK));
                 } else if (!(other_state & S_VISITED)) {
                     stack_ptr[stack_n++] = other;
@@ -228,7 +233,7 @@ struct CircuitBuilder {
         c.fixed_wire_n = 2;
         c.wire_data.assign(wire_n, 0);
         c.wire_data[1] = Circuit::V_MASK; // VPWR
-        c.dirty_wires.resize(wire_n);
+        c.dirty_wires.resize(wire_n+1);
         c.fet_on.assign(fets.size(), 0);
         c.visited_buf.resize(wire_n);
         c.stack_buf.resize(wire_n);
@@ -261,9 +266,27 @@ struct CircuitBuilder {
             c.wire_terms.push(t1, {t0, fet_idx});
             c.wire_terms.push(t0, {t1, fet_idx});
         }
+        // doesn't work
+        // std::vector<uint8_t> init(wire_n, 0);
+        // for (int i = 0; i < wire_n; ++i) {
+        //     if (init[i]) continue;
+        //     c.update_fets(i, c.wire_data[i] & Circuit::V_MASK);
+        //     init[i] = 1;
+        //     while (!c.dirty_wires.empty()) {
+        //         int wire = c.dirty_wires.front();
+        //         if (!init[wire]) {
+        //             c.step();
+        //             init[wire] = 1;
+        //         } else {
+        //             c.dirty_wires.pop_front();
+        //             c.wire_data[wire] ^= Circuit::S_DIRTY;
+        //         }
+        //     }
+        // }
         for (int i = 0; i < wire_n; ++i) {
             c.update_fets(i, c.wire_data[i] & Circuit::V_MASK);
         }
+
         return c;
     }
 };

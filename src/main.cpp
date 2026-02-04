@@ -161,7 +161,6 @@ struct CircuitExtractor {
     void walkRefs(gdstk::Cell* gcell, const Transform & tform) {
         CellID cell_id = gcell2id[gcell];
         const Cell & cell = cells[cell_id];
-        if (cell.isFiller) return;
         InstID inst_id = instances.size();
         instances.push_back({tform.apply(cell.bbox), cell_id, inst_id, tform});
         // these will be used for per-layer instance intersection queries
@@ -296,6 +295,7 @@ struct CircuitExtractor {
             for (size_t ii = 0; ii < instances.size(); ii++) {
                 const auto& inst = instances[ii];
                 const auto& cell = cells[inst.cell_id];
+                if (cell.isFiller) continue;
                 const auto& layer = cell.layers[li];
                 if (layer.rectCount == 0) continue;
                 
@@ -488,9 +488,12 @@ struct VGASimulator {
     bool settle(int max_settle_waves=100) {
         int wave = 0;
         while (!circuit.dirty_wires.empty() && wave < max_settle_waves) {
-            circuit.run_wave();
+            //printf("dw: %d\n", circuit.dirty_wires.size());
+            int sn = circuit.run_wave();
+            //printf("sn: %d\n", sn);
             ++wave;
         }
+        //printf("wave: %d\n", wave);
         return circuit.dirty_wires.empty();
     };
 
@@ -556,6 +559,7 @@ int main() {
     //const char * path = "gds/09/tt_um_rejunity_atari2600.gds", *pdk = "sky130A";
     const char * path = "gds/09/tt_um_znah_vga_ca.gds", *pdk = "sky130A";
     //const char * path = "gds/gf-0p2/tt_um_2048_vga_game.oas", *pdk = "gf180mcuD";
+    //const char * path = "gds/09/tt_um_a1k0n_nyancat.gds", *pdk = "sky130A";
     printf("Loading: %s\n", path);
 
     CircuitExtractor proc;
@@ -579,6 +583,7 @@ int main() {
     VGASimulator sim(proc.circuit, proc.labeledWires);
     if (sim.isValid()) {
         sim.run(380000);
+        //sim.run(10);
     } else {
         printf("No VGA pins detected, skipping simulation.\n");
     }

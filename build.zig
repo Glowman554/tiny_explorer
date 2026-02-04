@@ -21,7 +21,6 @@ pub fn build(b: *std.Build) void {
     exe.addCSourceFiles(.{
         .files = &.{
             "src/main.cpp",
-            //"src/fetsim.cpp",
             "src/wasm_allocator.cpp",
         },
         .flags = &.{ "-std=c++17", "-fno-exceptions", "-fno-rtti", "-fno-sanitize=alignment" },

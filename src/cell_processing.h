@@ -157,7 +157,7 @@ inline void assignWireIDs(Cell& cell) {
     if (cell.rects.empty()) return;
 
     // 1. Force IDs for special nets
-    cell.rect2wire.assign(cell.wireDSU.p.size(), DSU::NeedsID);
+    cell.rect2wire.assign(cell.rects.size(), DSU::NeedsID);
     if (cell.groundRect != -1) {
         cell.rect2wire[cell.wireDSU.find(cell.groundRect)] = 0;
     }

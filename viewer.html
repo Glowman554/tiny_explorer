@@ -7,121 +7,204 @@
     <style>
         body { margin: 0; overflow: hidden; background: #111; color: #eee; font-family: sans-serif; }
         canvas { display: block; width: 100vw; height: 100vh; }
-        #ui {
-            position: absolute; top: 10px; left: 10px;
-            background: rgba(0, 0, 0, 0.8); padding: 10px;
-            border-radius: 8px; max-height: 90vh; overflow-y: auto;
-            border: 1px solid #444; pointer-events: auto;
-            min-width: 200px;
-        }
-        .control-group { margin-bottom: 10px; }
-        label { display: block; font-size: 12px; margin: 2px 0; cursor: pointer; }
-        select { width: 100%; background: #222; color: #eee; border: 1px solid #555; padding: 4px; }
-        button { background: #333; color: #eee; border: 1px solid #555; padding: 4px 8px; cursor: pointer; margin-top: 5px; width: 100%; }
-        button:hover { background: #444; }
-        h3 { margin: 0 0 10px 0; font-size: 14px; border-bottom: 1px solid #444; padding-bottom: 5px; }
-        .layer-toggle { display: flex; align-items: center; }
-        .layer-toggle input { margin-right: 8px; }
-        .layer-color { width: 12px; height: 12px; display: inline-block; margin-right: 5px; border-radius: 2px; }
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 24px; pointer-events: none; }
-        #logContainer {
-            position: absolute; bottom: 45px; right: 10px;
-            background: rgba(0, 0, 0, 0.9); padding: 10px;
-            border-radius: 8px; border: 1px solid #444;
-            max-height: 300px; overflow-y: auto; overflow-x: auto;
-            width: 600px;
-            font-family: monospace; font-size: 11px;
-            white-space: pre;
-            color: #0f0; z-index: 1000;
+        
+        .panel {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.85);
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 12px;
             pointer-events: auto;
-            opacity: 0;
-            visibility: hidden;
-            transform: scale(0);
-            transform-origin: bottom right;
-            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), 
-                        opacity 0.4s ease, 
-                        visibility 0s 0.4s;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            transition: opacity 0.3s ease;
         }
-        #logContainer.visible { 
-            opacity: 1; 
-            visibility: visible; 
-            transform: scale(1);
-            transition: transform 0.3s cubic-bezier(0.1, 0.9, 0.2, 1), 
-                        opacity 0.3s ease, 
-                        visibility 0s;
+
+        .panel-header {
+            font-weight: bold;
+            font-size: 14px;
+            color: #0f0;
+            cursor: pointer;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #444;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
+
+        .panel-header::after {
+            content: '▼';
+            font-size: 10px;
+            opacity: 0.5;
+        }
+
+        .panel.collapsed .panel-header::after {
+            content: '▶';
+        }
+
+        .panel.collapsed .panel-content {
+            display: none !important;
+        }
+
+        .panel.collapsed .panel-header {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .panel.collapsed {
+            padding-bottom: 8px;
+        }
+
+        #ui { top: 10px; left: 10px; width: 220px; max-height: 90vh; }
+        #circuitMonitor { top: 10px; right: 10px; width: 280px; max-height: 60vh; }
+        
+        #logPanel {
+            bottom: 10px; right: 10px;
+            width: 600px;
+            max-height: 300px;
+        }
+
+        #topControls {
+            top: 10px; left: 50%; 
+            transform: translateX(-50%); 
+            width: 320px; 
+            display: flex;
+            flex-direction: row; 
+            align-items: center; 
+            gap: 12px;
+            padding: 8px 15px;
+        }
+
+        .panel-content {
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .control-group { margin-bottom: 15px; }
+        label { display: block; font-size: 11px; margin: 4px 0 2px 0; color: #aaa; text-transform: uppercase; }
+        
+        select { width: 100%; background: #1a1a1a; color: #eee; border: 1px solid #444; padding: 4px; font-size: 12px; }
+        button { background: #2a2a2a; color: #eee; border: 1px solid #444; padding: 6px 8px; cursor: pointer; margin-top: 5px; width: 100%; border-radius: 4px; font-size: 12px; }
+        button:hover { background: #3a3a3a; border-color: #666; }
+        
+        .layer-toggle { display: flex; align-items: center; font-size: 12px; color: #eee; text-transform: none; padding: 2px 0; }
+        .layer-toggle input { margin-right: 8px; }
+        .layer-color { width: 12px; height: 12px; display: inline-block; margin-right: 8px; border-radius: 2px; cursor: pointer; }
+        
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 24px; pointer-events: none; z-index: 1000; }
+        
+        #logContainer {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace; 
+            font-size: 11px;
+            white-space: pre;
+            color: #0f0;
+            margin: 0;
+        }
+
         #netSearch {
-            width: 100%; background: #222; color: #eee; border: 1px solid #555; 
-            padding: 4px; margin-bottom: 5px; box-sizing: border-box;
+            width: 100%; background: #1a1a1a; color: #eee; border: 1px solid #444; 
+            padding: 6px; margin-bottom: 5px; box-sizing: border-box; border-radius: 4px;
         }
-        #alphaSlider { width: 100%; }
+        
+        #alphaSlider { width: 100%; margin: 8px 0; }
+        
         #btnLogTab {
             position: absolute; bottom: 10px; right: 10px; width: auto; z-index: 1001; 
-            padding: 4px 10px; background: rgba(0,0,0,0.8); border: 1px solid #444; 
+            padding: 4px 15px; background: rgba(0,0,0,0.85); border: 1px solid #444; 
             border-radius: 4px; color: #0f0; font-family: monospace; font-size: 12px; 
             font-weight: bold; cursor: pointer;
         }
-        #btnLogTab:hover { background: rgba(30, 30, 30, 0.9); border-color: #666; }
+        #btnLogTab:hover { background: #222; border-color: #0f0; }
         
-        #circuitMonitor {
-            position: absolute; top: 10px; right: 10px;
-            background: rgba(0, 0, 0, 0.85); padding: 12px;
-            border-radius: 8px; border: 1px solid #444;
-            width: 280px; max-height: 400px; overflow-y: auto;
-            pointer-events: auto; font-size: 13px;
+        .monitor-controls { display: flex; gap: 5px; margin-bottom: 12px; }
+        .monitor-controls button { flex: 1; margin-top: 0; }
+
+        .monitor-special-row { display: flex; gap: 4px; margin-bottom: 10px; }
+        .monitor-special-btn { 
+            flex: 1; padding: 6px 0; font-size: 10px; text-align: center; border-radius: 4px; 
+            background: #222; border: 1px solid #444; color: #888; cursor: pointer; font-family: monospace;
+            transition: all 0.1s;
         }
-        .monitor-header { font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px; color: #0f0; }
-        .monitor-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-        .wire-name { color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 10px; }
-        .wire-state { 
-            width: 30px; height: 20px; line-height: 20px; text-align: center;
-            border-radius: 4px; font-weight: bold; cursor: pointer;
-            transition: all 0.2s;
+        .monitor-special-btn.state-low { background: #112; color: #58a6ff; border-color: #235; }
+        .monitor-special-btn.state-high { background: #321; color: #ffa658; border-color: #642; }
+
+        .monitor-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-bottom: 8px; }
+        .monitor-btn { 
+            aspect-ratio: 1; display: flex; align-items: center; justify-content: center; 
+            font-size: 10px; font-weight: bold; border-radius: 4px; border: 1px solid #444;
+            background: #222; color: #666; cursor: pointer; transition: all 0.1s;
         }
-        .state-low { background: #300; color: #f00; border: 1px solid #600; }
-        .state-high { background: #030; color: #0f0; border: 1px solid #060; }
-        .state-x { background: #330; color: #ff0; border: 1px solid #660; }
-        .monitor-controls { display: flex; gap: 5px; margin-bottom: 10px; }
-        .monitor-controls button { flex: 1; padding: 4px; font-size: 11px; }
+        .monitor-btn.state-low { background: #112; color: #58a6ff; border-color: #235; }
+        .monitor-btn.state-high { background: #321; color: #ffa658; border-color: #642; }
+        .monitor-group-label { font-size: 9px; color: #555; text-transform: uppercase; margin-bottom: 4px; margin-top: 8px; }
+        
+        /* Hide scrollbars but keep functionality */
+        .panel-content::-webkit-scrollbar { width: 4px; }
+        .panel-content::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
     </style>
 </head>
 <body>
     <div id="loading">Loading...</div>
     <canvas id="glcanvas"></canvas>
-    <div id="ui">
-        <h3>Controls</h3>
-        <div class="control-group">
-            <button id="btnReset">Reset View</button>
-        </div>
-        <div class="control-group">
-            <label>Nets (by Area)</label>
-            <input type="text" id="netSearch" placeholder="Search net...">
-            <select id="netSelect" size="15" multiple style="width:100%"></select>
-            <button id="btnClearNet">Clear Highlight</button>
-        </div>
-        <div class="control-group">
-            <label>Layer Opacity</label>
-            <input type="range" id="alphaSlider" min="0.1" max="1.0" step="0.1" value="0.8">
-        </div>
-        <div class="control-group">
-            <label class="layer-toggle">
-                <input type="checkbox" id="boundaryToggle"> Draw Boundaries
-            </label>
-            <label class="layer-toggle">
-                <input type="checkbox" id="powerNetToggle" checked> Show Power Nets (0, 1)
-            </label>
-        </div>
-        <div class="control-group">
-            <h3>Layers</h3>
-            <button id="btnToggleAll">Toggle All Layers</button>
-            <div id="layerList"></div>
-        </div>
 
+    <div id="topControls" class="panel">
+        <div style="font-size: 10px; color: #888; font-weight: bold; letter-spacing: 1px;">LAYERS</div>
+        <input type="range" id="stateMixSlider" min="0" max="1" step="0.01" value="0" style="flex: 1; cursor: pointer;">
+        <div style="font-size: 10px; color: #888; font-weight: bold; letter-spacing: 1px;">STATE</div>
     </div>
-    <div id="circuitMonitor"></div>
-    <pre id="logContainer"></pre>
-    <button id="btnLogTab">LOG</button>
+    
+    <div id="ui" class="panel">
+        <div class="panel-header">Controls</div>
+        <div class="panel-content">
+            <div class="control-group">
+                <button id="btnReset">Reset View</button>
+            </div>
+            <div class="control-group">
+                <label>Highlight Nets</label>
+                <input type="text" id="netSearch" placeholder="Search net...">
+                <select id="netSelect" size="10" multiple></select>
+                <button id="btnClearNet">Clear Highlight</button>
+            </div>
+            <div class="control-group">
+                <label>Global Opacity</label>
+                <input type="range" id="alphaSlider" min="0.1" max="1.0" step="0.1" value="0.8">
+            </div>
+            <div class="control-group">
+                <div class="layer-toggle">
+                    <input type="checkbox" id="boundaryToggle"> <span>Boundaries</span>
+                </div>
+                <div class="layer-toggle">
+                    <input type="checkbox" id="powerNetToggle" checked> <span>Power Nets</span>
+                </div>
+            </div>
+            <div class="control-group">
+                <label>Visible Layers</label>
+                <button id="btnToggleAll" style="margin-bottom:8px">Toggle All</button>
+                <div id="layerList"></div>
+            </div>
+        </div>
+    </div>
 
-<script src="web/viewer.js"></script>
+    <div id="circuitMonitor" class="panel">
+        <div class="panel-header">Circuit Monitoring</div>
+        <div id="circuitMonitorContent" class="panel-content">
+            <div style="padding:10px; color:#666;">Waiting for netlist...</div>
+        </div>
+    </div>
+
+    <div id="logPanel" class="panel">
+        <div class="panel-header">System Log</div>
+        <div class="panel-content" style="max-height: 250px;">
+            <pre id="logContainer"></pre>
+        </div>
+    </div>
+
+    <script type="module" src="web/main.js"></script>
 </body>
 </html>
