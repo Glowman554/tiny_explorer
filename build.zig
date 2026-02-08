@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
     exe.addIncludePath(b.path("src"));
     exe.addIncludePath(b.path("vendor/gdstk/include"));
     exe.addIncludePath(b.path("vendor/gdstk/external"));
-    exe.addIncludePath(b.path("vendor/zlib"));
+    exe.addIncludePath(b.path("vendor/miniz"));
     exe.addIncludePath(b.path("src/qhull_stub"));
 
     exe.addCSourceFiles(.{
@@ -51,26 +51,9 @@ pub fn build(b: *std.Build) void {
         .flags = &.{ "-std=c++17", "-fno-rtti", "-DGDSTK_NO_PYTHON", "-DGDSTK_CUSTOM_ALLOCATOR", "-fno-sanitize=alignment" },
     });
 
-    // Zlib Source Files
-    const zlib_src = &.{
-        "vendor/zlib/adler32.c",
-        "vendor/zlib/compress.c",
-        "vendor/zlib/crc32.c",
-        "vendor/zlib/deflate.c",
-        "vendor/zlib/gzclose.c",
-        "vendor/zlib/gzlib.c",
-        "vendor/zlib/gzread.c",
-        "vendor/zlib/gzwrite.c",
-        "vendor/zlib/infback.c",
-        "vendor/zlib/inffast.c",
-        "vendor/zlib/inflate.c",
-        "vendor/zlib/inftrees.c",
-        "vendor/zlib/trees.c",
-        "vendor/zlib/uncompr.c",
-        "vendor/zlib/zutil.c",
-    };
+    // Miniz Source Files
     exe.addCSourceFiles(.{ 
-        .files = zlib_src,
+        .files = &.{ "vendor/miniz/miniz.c" },
         .flags = &.{ "-std=gnu99", "-D_DARWIN_C_SOURCE", "-DHAVE_UNISTD_H" },
     });
 
