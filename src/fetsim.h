@@ -1,150 +1,104 @@
 #pragma once
 
 #include <algorithm>
-#include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <vector>
 #include <tuple>
 
 struct FET {
-    int32_t gate;
-    int32_t term[2];
+    uint32_t gate, term[2];
     enum {P=0, N=1};
-    uint8_t type; // 1 for N-type (on high), 0 for P-type (on low)
-
+    uint8_t type; 
     auto tie() const { return std::tie(type, gate, term[0], term[1]); }
-    bool operator<(const FET& other) const { return tie() < other.tie(); }  
+    bool operator<(const FET& o) const { return tie() < o.tie(); }  
 };
 
 struct Queue {
     std::vector<uint32_t> data;
-    size_t head = 0, tail = 0, mask = 0;
-
-    uint32_t& operator[](size_t i) { return data[(head + i) & mask]; }
-    const uint32_t& operator[](size_t i) const { return data[(head + i) & mask]; }
-
-    void push_back(uint32_t w) { data[tail] = w; tail = (tail + 1) & mask; }
-    uint32_t front() { return data[head]; }
-    uint32_t pop_front() { 
+    size_t head = 0, tail = 0;
+    void resize(size_t n) {
+        size_t s = 1; while (s <= n) s <<= 1;
+        data.assign(s, 0); head = tail = 0;
+    }
+    void push_back(uint32_t w) {
+        data[tail] = w;
+        size_t m = data.size() - 1;
+        tail = (tail + 1) & m;
+        if (tail == head) {
+            std::vector<uint32_t> next(data.size() * 2);
+            for (size_t i = 0; i < data.size(); i++) next[i] = data[(head + i) & m];
+            head = 0; tail = data.size();
+            data = std::move(next);
+        }
+    }
+    uint32_t pop_front() {
         uint32_t r = data[head];
-        head = (head + 1) & mask; 
+        head = (head + 1) & (data.size() - 1);
         return r;
     }
     bool empty() const { return head == tail; }
-    size_t size() const { return (tail - head) & mask; }
-    void clear() { head = tail = 0; }
-    void resize(size_t n) {
-        size_t s = 1;
-        while (s <= n) s <<= 1;
-        data.resize(s);
-        mask = s - 1;
-        clear();
-    }
+    uint32_t front() const { return data[head]; }
 };
 
-// Compressed Sparse Row
 template<typename T>
 struct CSRMap {
     std::vector<T> data;
     std::vector<uint32_t> head;
-
-    void init(size_t n_rows) {
-        head.assign(n_rows + 1, 0);
-        data.clear();
-    }
-
-    void tally(uint32_t row) {
-        head[row]++;
-    }
-
+    void init(size_t rows) { head.assign(rows + 1, 0); data.clear(); }
+    void tally(uint32_t row) { head[row]++; }
     void compile() {
         for (size_t i = 0; i < head.size() - 1; ++i) head[i+1] += head[i];
         data.resize(head.back());
     }
-
-    void push(uint32_t row, const T& item) {
-        data[--head[row]] = item;
-    }
-
+    void push(uint32_t row, const T& item) { data[--head[row]] = item; }
     struct Range {
         const T *b, *e;
         const T* begin() const { return b; }
         const T* end() const { return e; }
         size_t size() const { return e - b; }
+        bool empty() const { return b == e; }
     };
-
-    Range operator[](uint32_t row) const { 
-        return { data.data() + head[row], data.data() + head[row+1] }; 
-    }
+    Range operator[](uint32_t row) const { return { data.data() + head[row], data.data() + head[row+1] }; }
 };
 
+struct PackedPeer { uint32_t other, gate_type; };
+
 struct Circuit {
-    uint32_t fixed_wire_n;
-    
-    struct PackedGate { 
-        uint32_t t0, t1;   // The two source/drain terminals connected by this FET
-        uint32_t fi_type;  // Combined FET index (lower 31 bits) and Type (top bit: 1=N, 0=P)
-    };
-    struct PackedPeer { 
-        uint32_t other;    // The wire index of the "other" terminal (destination of traversal)
-        uint32_t fi;       // FET index (to check fet_on state)
-    };
-    
-    // wire to FET gates
-    CSRMap<PackedGate> wire_gates;
-
-    // wire to peer wires (connected by FET channels)
-    CSRMap<PackedPeer> wire_terms;
-    
-    // State of each FET (true if conducting). Indexed by fet_index.
-    std::vector<uint8_t> fet_on;
-    
-    // Wire data bits: 0=value, 1=S_DIRTY, 2=S_VISITED
-    enum { V_MASK = 1, S_DIRTY = 2, S_VISITED = 4 };
-    static constexpr uint32_t STOP_MARKER = 0xFFFFFFFF;
-
-    // State of each wire (0/1 value + flags). Indexed by wire_index.
+    CSRMap<uint32_t> gate_to_nets; // Nets (terminals) affected by a change in this gate wire
+    CSRMap<PackedPeer> net_connectivity; // Switched adjacencies between nets
+    std::vector<FET> fets;
     std::vector<uint8_t> wire_data;
     
-    // Simulation stats
+    enum State : uint8_t { V_MASK = 1, S_DIRTY = 2, S_VISITED = 4 };
+    static constexpr uint32_t STOP_MARKER = 0xFFFFFFFF;
+    
+    std::vector<uint32_t> visited_buf, stack_buf;
+    Queue dirty_wires;
     int short_count = 0;
 
-    // Temporary buffers for BFS/traversal to avoid reallocations.
-    std::vector<uint32_t> visited_buf, stack_buf;
-    uint32_t *visited_ptr = nullptr, *stack_ptr = nullptr;
-    int visited_n = 0, stack_n = 0;
+    size_t fet_n() const { return fets.size(); }
+    size_t wire_n() const { return wire_data.size(); }
+    bool is_settled() const { return dirty_wires.empty(); }
 
-    // Queue of wires that changed state and need processing.
-    Queue dirty_wires;
-
-    size_t fet_n() const {return fet_on.size();}
-    size_t wire_n() const {return wire_data.size();}
+    std::vector<uint8_t> get_fet_states() const {
+        std::vector<uint8_t> states(fets.size());
+        for (size_t i = 0; i < fets.size(); ++i) 
+            states[i] = (wire_data[fets[i].gate] & V_MASK) == fets[i].type;
+        return states;
+    }
 
     void set_input(uint32_t wire, uint8_t val) {
         if ((wire_data[wire] & V_MASK) == val) return;
         wire_data[wire] = (wire_data[wire] & ~V_MASK) | val;
-        update_fets(wire, val);
+        trigger_gate(wire);
     }
 
-    void update_fets(uint32_t gate_wire, uint8_t gate_val) {
-        uint8_t* wire_states = wire_data.data();
-        uint8_t* fet_states = fet_on.data();
-
-        for (const auto& gate_entry : wire_gates[gate_wire]) {
-            uint32_t fet_idx = gate_entry.fi_type & 0x7FFFFFFF;
-            uint32_t type = gate_entry.fi_type >> 31;
-            bool on = (type == gate_val);
-            if (on == fet_states[fet_idx]) continue;
-            fet_states[fet_idx] = on;
-            
-            if (!(wire_states[gate_entry.t0] & S_DIRTY)) {
-                dirty_wires.push_back(gate_entry.t0);
-                wire_states[gate_entry.t0] |= S_DIRTY;
-            }
-            if (!(wire_states[gate_entry.t1] & S_DIRTY)) {
-                dirty_wires.push_back(gate_entry.t1);
-                wire_states[gate_entry.t1] |= S_DIRTY;
+    void trigger_gate(uint32_t gate_wire) {
+        uint8_t* s = wire_data.data();
+        for (uint32_t term : gate_to_nets[gate_wire]) {
+            if (term >= 2 && !(s[term] & S_DIRTY)) { 
+                s[term] |= S_DIRTY; 
+                dirty_wires.push_back(term); 
             }
         }
     }
@@ -152,141 +106,101 @@ struct Circuit {
     int run_wave() {
         if (dirty_wires.empty()) return 0;
         dirty_wires.push_back(STOP_MARKER);
-        int step_count = 0;
-        while (dirty_wires.front() != STOP_MARKER) {
-            step();
-            ++step_count;
-        }
-        dirty_wires.pop_front(); // remove stop
-        return step_count;
+        int steps = 0;
+        while (dirty_wires.front() != STOP_MARKER) { step(); steps++; }
+        dirty_wires.pop_front();
+        return steps;
     }
 
-    bool step() {
-        uint32_t start_wire = STOP_MARKER;
-        uint8_t* wire_states = wire_data.data();
+    void step() {
+        uint8_t* s = wire_data.data();
+        uint32_t seed = STOP_MARKER;
         while (!dirty_wires.empty()) {
-            uint32_t wire = dirty_wires.front();
-            if (wire == STOP_MARKER) break;
-            dirty_wires.pop_front();
-            if ((wire_states[wire] & S_DIRTY)) {
-                start_wire = wire;
-                break;
-            }
+            uint32_t w = dirty_wires.pop_front();
+            if (w == STOP_MARKER) { dirty_wires.push_back(STOP_MARKER); return; }
+            if (s[w] & S_DIRTY) { seed = w; break; }
         }
-        if (start_wire == STOP_MARKER) return false;
+        if (seed == STOP_MARKER) return;
 
-        visited_n = 0;
-        wire_states[start_wire] |= S_VISITED;
-        uint8_t driven_mask = 0; 
-        stack_ptr[0] = start_wire;
-        stack_n = 1;
+        uint32_t* visited_ptr = visited_buf.data();
+        uint32_t* stack_ptr = stack_buf.data();
+        int vn = 0, sn = 1;
+        stack_ptr[0] = seed;
+        s[seed] |= S_VISITED;
+        uint8_t driven = 0;
 
-        uint8_t* fet_states = fet_on.data();
-
-
-        while (stack_n > 0) {
-            uint32_t wire = stack_ptr[--stack_n];
-            visited_ptr[visited_n++] = wire;
-            
-            for (const auto& peer : wire_terms[wire]) {
-                if (!fet_states[peer.fi]) continue;
-                uint32_t other = peer.other;
-                uint8_t other_state = wire_states[other];
-                if (other < 2) { // is power wire
-                    driven_mask |= (1 << (other_state & V_MASK));
-                } else if (!(other_state & S_VISITED)) {
-                    stack_ptr[stack_n++] = other;
-                    wire_states[other] |= S_VISITED;
+        while (sn > 0) {
+            uint32_t w = stack_ptr[--sn];
+            visited_ptr[vn++] = w;
+            for (auto const& p : net_connectivity[w]) {
+                if ((s[p.gate_type & 0x7FFFFFFF] & V_MASK) == (p.gate_type >> 31)) {
+                    if (p.other < 2) driven |= (1 << (s[p.other] & V_MASK));
+                    else if (!(s[p.other] & S_VISITED)) {
+                        s[p.other] |= S_VISITED;
+                        stack_ptr[sn++] = p.other;
+                    }
                 }
             }
         }
-        
-        if (driven_mask == 3) short_count++;
-        bool is_driven = driven_mask != 0;
-        uint8_t new_val = (driven_mask == 2) ? 1 : 0; 
 
-        for (int i = 0; i < visited_n; ++i) {
-            uint32_t wire = visited_ptr[i];
-            uint8_t state = wire_states[wire];
-            wire_states[wire] = state & V_MASK; 
-            if (is_driven && (state & V_MASK) != new_val) {
-                wire_states[wire] = new_val;
-                update_fets(wire, new_val);
+        if (driven == 3) short_count++;
+        bool has_driven = (driven != 0);
+        uint8_t val = (driven == 2) ? 1 : 0; 
+
+        for (int i = 0; i < vn; i++) {
+            uint32_t w = visited_ptr[i];
+            uint8_t old = s[w];
+            s[w] = old & V_MASK; // Clear Flags
+            if (has_driven && (old & V_MASK) != val) {
+                s[w] = val;
+                trigger_gate(w);
             }
         }
-        return !dirty_wires.empty();
     }
 };
 
-
 struct CircuitBuilder {
     std::vector<FET> fets;
-    int wire_n = 2; // VGND, VPWR
-
+    int wire_n = 2;
     void add_fet(int g, int t0, int t1, uint8_t type) {
-        fets.push_back({g, {t0, t1}, type});
-        wire_n = std::max({wire_n-1, g, t0, t1}) + 1;
+        fets.push_back({(uint32_t)g, {(uint32_t)t0, (uint32_t)t1}, type});
+        wire_n = std::max({wire_n - 1, g, t0, t1}) + 1;
     }
-
     Circuit build() {
         Circuit c;
-        c.fixed_wire_n = 2;
         c.wire_data.assign(wire_n, 0);
-        c.wire_data[1] = Circuit::V_MASK; // VPWR
-        c.dirty_wires.resize(wire_n+1);
-        c.fet_on.assign(fets.size(), 0);
+        c.wire_data[1] = 1; // VPWR
+        c.dirty_wires.resize(wire_n + 1);
+        c.fets = fets;
         c.visited_buf.resize(wire_n);
         c.stack_buf.resize(wire_n);
-        c.visited_ptr = c.visited_buf.data();
-        c.stack_ptr = c.stack_buf.data();
-        
-        for (int i = 0; i < (int)c.fixed_wire_n; ++i) c.wire_data[i] |= Circuit::S_DIRTY;
+        for (int i = 0; i < 2; ++i) c.wire_data[i] |= Circuit::S_DIRTY;
 
-        c.wire_gates.init(wire_n);
-        c.wire_terms.init(wire_n);
-
-        for (const auto& f : fets) {
-            c.wire_gates.tally(f.gate);
-            c.wire_terms.tally(f.term[0]);
-            c.wire_terms.tally(f.term[1]);
+        c.gate_to_nets.init(wire_n); c.net_connectivity.init(wire_n);
+        for (auto const& f : fets) {
+            if (f.term[0] >= 2) {
+                c.gate_to_nets.tally(f.gate);
+                c.net_connectivity.tally(f.term[0]);
+            }
+            if (f.term[1] >= 2) {
+                c.gate_to_nets.tally(f.gate);
+                c.net_connectivity.tally(f.term[1]);
+            }
         }
-        
-        c.wire_gates.compile();
-        c.wire_terms.compile();
-
-        for (int i = (int)fets.size() - 1; i >= 0; --i) {
-            const auto& f = fets[i];
-            uint32_t fet_idx = i;
-            uint32_t g = f.gate;
-            uint32_t t0 = f.term[0];
-            uint32_t t1 = f.term[1];
-            
-            uint32_t fi_type = fet_idx | ((uint32_t)f.type << 31);
-            c.wire_gates.push(g, {t0, t1, fi_type});
-            c.wire_terms.push(t1, {t0, fet_idx});
-            c.wire_terms.push(t0, {t1, fet_idx});
+        c.gate_to_nets.compile(); c.net_connectivity.compile();
+        for (int i = (int)fets.size() - 1; i >= 0; i--) {
+            auto const& f = fets[i];
+            uint32_t gt = f.gate | ((uint32_t)f.type << 31);
+            if (f.term[0] >= 2) {
+                c.gate_to_nets.push(f.gate, f.term[0]);
+                c.net_connectivity.push(f.term[0], {f.term[1], gt});
+            }
+            if (f.term[1] >= 2) {
+                c.gate_to_nets.push(f.gate, f.term[1]);
+                c.net_connectivity.push(f.term[1], {f.term[0], gt});
+            }
         }
-        // doesn't work
-        // std::vector<uint8_t> init(wire_n, 0);
-        // for (int i = 0; i < wire_n; ++i) {
-        //     if (init[i]) continue;
-        //     c.update_fets(i, c.wire_data[i] & Circuit::V_MASK);
-        //     init[i] = 1;
-        //     while (!c.dirty_wires.empty()) {
-        //         int wire = c.dirty_wires.front();
-        //         if (!init[wire]) {
-        //             c.step();
-        //             init[wire] = 1;
-        //         } else {
-        //             c.dirty_wires.pop_front();
-        //             c.wire_data[wire] ^= Circuit::S_DIRTY;
-        //         }
-        //     }
-        // }
-        for (int i = 0; i < wire_n; ++i) {
-            c.update_fets(i, c.wire_data[i] & Circuit::V_MASK);
-        }
-
+        for (int i = 2; i < wire_n; ++i) c.trigger_gate(i);
         return c;
     }
 };
