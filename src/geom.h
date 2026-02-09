@@ -77,12 +77,6 @@ struct DSU {
     }
 };
 
-template <typename T>
-void unique_sort(std::vector<T>& v) {
-    std::sort(v.begin(), v.end());
-    v.erase(std::unique(v.begin(), v.end()), v.end());
-}
-
 inline bool overlaps(const Rect& a, const Rect& b) {
     return a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
 }

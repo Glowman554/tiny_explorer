@@ -54,7 +54,7 @@ pub fn build(b: *std.Build) void {
     // Miniz Source Files
     exe.addCSourceFiles(.{ 
         .files = &.{ "vendor/miniz/miniz.c" },
-        .flags = &.{ "-std=gnu99", "-D_DARWIN_C_SOURCE", "-DHAVE_UNISTD_H" },
+        .flags = &.{ "-std=gnu99" },
     });
 
     exe.linkLibC();

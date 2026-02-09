@@ -3,7 +3,7 @@ CC = clang
 CXX = clang++
 
 # Flags
-COMMON_FLAGS = -O3 -march=native -flto -ffast-math -DGDSTK_NO_PYTHON -DGDSTK_CUSTOM_ALLOCATOR -DHAVE_UNISTD_H -D_DARWIN_C_SOURCE
+COMMON_FLAGS = -O3 -march=native -flto -ffast-math -DGDSTK_NO_PYTHON -DGDSTK_CUSTOM_ALLOCATOR
 INCLUDES = -Isrc -Ivendor/gdstk/include -Ivendor/gdstk/external -Ivendor/miniz -Isrc/qhull_stub
 
 # Add dependency tracking flags
@@ -22,37 +22,32 @@ OBJS_COMMON = $(MINIZ_SRC:.c=.o) \
               $(CLIPPER_SRC:.cpp=.o) \
               src/wasm_allocator.o
 
-OBJS_VGA = $(OBJS_COMMON) src/main_vga.o
-OBJS_DFF = $(OBJS_COMMON) src/main_dff.o
+OBJS = $(OBJS_COMMON) src/main.o
+
 
 # Dependency files
-DEPS = $(OBJS_VGA:.o=.d) $(OBJS_DFF:.o=.d)
+DEPS = $(OBJS:.o=.d)
+
 
 # Target executables
-TARGETS = explorer dff_test
+TARGETS = explorer
+
 
 # Rules
 .PHONY: all clean
 
 all: $(TARGETS)
 
-explorer: $(OBJS_VGA)
+explorer: $(OBJS)
 	@echo "🚀 Linking explorer..."
-	@$(CXX) $(COMMON_FLAGS) $(OBJS_VGA) -o explorer
+	@$(CXX) $(COMMON_FLAGS) $(OBJS) -o explorer
 	@du -h explorer
 
-dff_test: $(OBJS_DFF)
-	@echo "🚀 Linking dff_test..."
-	@$(CXX) $(COMMON_FLAGS) $(OBJS_DFF) -o dff_test
-	@du -h dff_test
 
-src/main_vga.o: src/main.cpp
-	@echo "  CXX     $< (VGA)"
+src/main.o: src/main.cpp
+	@echo "  CXX     $<"
 	@$(CXX) $(CXXFLAGS) -c $< -o $@
 
-src/main_dff.o: src/main.cpp
-	@echo "  CXX     $< (DFF)"
-	@$(CXX) $(CXXFLAGS) -DRUN_DFF -c $< -o $@
 
 # Compile C sources
 %.o: %.c
@@ -68,6 +63,7 @@ src/main_dff.o: src/main.cpp
 -include $(DEPS)
 
 clean:
-	@rm -f $(OBJS_VGA) $(OBJS_DFF) $(DEPS) $(TARGETS)
+	@rm -f $(OBJS) $(DEPS) $(TARGETS)
+
 	@find . -name "*.o" -delete
 	@find . -name "*.d" -delete
