@@ -86,13 +86,20 @@
         </section>
     </main>
 
-    <footer class="footer">
-        <p>Data provided by <a href="https://tinytapeout.com" target="_blank">Tiny Tapeout</a> Index</p>
-        <div style="margin-top: 1rem; opacity: 0.6; font-size: 0.8rem;">
-            <a href="bench.html" style="color: inherit; margin-right: 1rem;">WASM Benchmark</a>
-            <a href="report.html" style="color: inherit;">Processing Report</a>
-        </div>
     </footer>
+    
+    <!-- Metadata Modal -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Project Metadata</h3>
+                <button id="modal-close" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <pre id="json-metadata"></pre>
+            </div>
+        </div>
+    </div>
 
     <script src="web/app.js"></script>
 </body>

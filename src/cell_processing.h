@@ -4,7 +4,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cstdio>
-#include <set>
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -136,6 +136,7 @@ struct Transform {
 
 
 inline void mergeCellWires(Cell& cell) {
+    cell.wireDSU.reset(cell.rects.size());
     const auto & layers = cell.layers;
     auto joinWires = [&](int i, int k) { cell.wireDSU.unite(i, k); };
     // Intra-layer merging
@@ -194,7 +195,7 @@ inline void extractFETs(Cell& cell) {
         return;
     }
 
-    std::set<FET> uniqueFETs;
+    cell.fets.clear();
     size_t malformedCount = 0;
     size_t decapCount = 0;
 
@@ -222,16 +223,20 @@ inline void extractFETs(Cell& cell) {
         }
 
         // 3. Identify Terminals
-        std::set<int32_t> uniqueTerminals;
+        int32_t terminals[2] = {-1, -1};
+        int tCount = 0;
         const auto& tLayer = isPType ? cell.layers[L_P_TERM] : cell.layers[L_N_TERM];
         queryBVH(tLayer.bvh, cell.rects, channelRect, [&](int idx) {
-            uniqueTerminals.insert(cell.rect2wire[idx]);
+            int32_t w = cell.rect2wire[idx];
+            if (w == terminals[0] || w == terminals[1]) return true;
+            if (tCount < 2) terminals[tCount] = w;
+            tCount++;
             return true;
         }, touches);
 
-        if (uniqueTerminals.size() != 2) {
+        if (tCount != 2) {
             // Suppress warning if gate is tied to PWR/GND (Fill/Decap)
-            if (gateWire != -1 && (gateWire == 0 || gateWire == 1)) {
+            if (gateWire == 0 || gateWire == 1) {
                 decapCount++;
             } else {
                 malformedCount++;
@@ -239,9 +244,14 @@ inline void extractFETs(Cell& cell) {
             continue;
         }
         
-        auto it = uniqueTerminals.begin();
-        int32_t t1 = *it++;
-        int32_t t2 = *it;
+        int32_t t1 = terminals[0];
+        int32_t t2 = terminals[1];
+        if (t1 > t2) std::swap(t1, t2);
+        if (gateWire < 0 || t1 < 0 || t2 < 0) {
+            printf("Warning: FET in cell %s has terminals with unassigned wire IDs: gate %d, t1 %d, t2 %d\n",
+                   cell.name.c_str(), gateWire, t1, t2);
+            continue;
+        }
 
         FET fet;
         fet.type = isPType ? FET::P : FET::N;
@@ -249,14 +259,14 @@ inline void extractFETs(Cell& cell) {
         fet.term[0] = t1;
         fet.term[1] = t2;
         
-        uniqueFETs.insert(fet);
+        cell.fets.push_back(fet);
     }
     
     if (malformedCount > 0) {
         printf("Warning: %zu malformed FETs in cell %s (skipped)\n", malformedCount, cell.name.c_str());
     }
     
-    cell.fets.assign(uniqueFETs.begin(), uniqueFETs.end());
+    unique_sort(cell.fets);
 }
 
 inline void processFETLayers(Cell& cell) {
@@ -312,20 +322,36 @@ inline void processFETLayers(Cell& cell) {
     add_layer(L_P_TERM, p_terminals);
 }
 
-struct fracture_cell_func {
+struct CellProcessor {
     struct VerticalEdge { int32_t x, y_min, y_max; };
     std::vector<int32_t> ys;
     std::vector<int32_t> xs;
     std::vector<VerticalEdge> v_edges;
     std::array<std::vector<Rect>, L_COUNT> tempRects; 
 
-    fracture_cell_func() {
+    CellProcessor() {
         ys.reserve(128);
         xs.reserve(128);
         v_edges.reserve(128);
     }
 
-    void operator()(const gdstk::Cell* gcell, Cell & cell, const std::string& pdk) {
+    void run(gdstk::Cell* gcell, Cell & cell, const std::string& pdk) {
+        cell.name = gcell->name;
+        normalize_gcell(gcell);
+        fracture_polygons(gcell, cell, pdk);
+        processFETLayers(cell);
+        mergeCellWires(cell);
+        resolveLabelsGdstk(gcell, cell, pdk);
+        assignWireIDs(cell);
+        extractFETs(cell);
+        cell.isFiller = isFillerCell(cell.name) && gcell->reference_array.count == 0;
+        if (cell.rects.size() > 1000) {
+            printf("Big cell: %s (%zu rects, %u wires, %zu FETs)\n", 
+                cell.name.c_str(), cell.rects.size(), cell.wireDSU.count(), cell.fets.size());
+        }
+    }
+
+    void fracture_polygons(const gdstk::Cell* gcell, Cell & cell, const std::string& pdk) {
         for (auto& layer : tempRects) {layer.clear();}
 
         for (int i=0; i<gcell->polygon_array.count; ++i) {

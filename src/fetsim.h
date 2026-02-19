@@ -14,14 +14,6 @@ void unique_sort(std::vector<T>& v) {
     v.erase(std::unique(v.begin(), v.end()), v.end());
 }
 
-struct FET {
-    uint32_t gate, term[2];
-    enum {P=0, N=1};
-    uint8_t type; 
-    auto tie() const { return std::tie(gate, term[0], term[1], type); }
-    bool operator<(const FET& o) const { return tie() < o.tie(); }  
-};
-
 struct Queue {
     std::vector<uint32_t> data;
     size_t head = 0, tail = 0;
@@ -90,7 +82,6 @@ struct PackedPeer {
 struct Circuit {
     CSRMap<uint32_t> gate_to_nets; // Nets (terminals) affected by a change in this gate wire
     CSRMap<PackedPeer> net_connectivity; // Switched adjacencies between nets
-    std::vector<FET> fets;
     std::vector<uint8_t> wire_data;
     
     enum State : uint8_t { V_MASK = 1, S_DIRTY = 2, S_VISITED = 4 };
@@ -99,11 +90,10 @@ struct Circuit {
     Queue dirty_wires;
     int short_count = 0;
 
-    size_t fet_n() const { return fets.size(); }
     size_t wire_n() const { return wire_data.size(); }
     bool is_settled() const { return dirty_wires.empty(); }
 
-    void set_input(uint32_t wire, uint8_t val) {
+    void set_signal(uint32_t wire, uint8_t val) {
         if ((wire_data[wire] & V_MASK) == val) return;
         wire_data[wire] = (wire_data[wire] & ~V_MASK) | val;
         trigger_gate(wire);
@@ -121,20 +111,31 @@ struct Circuit {
 
     int run_wave() {
         int steps = dirty_wires.size();
-        for (int i=0; i<steps; ++i) step();
+        for (int i=0; i<steps;) {
+            const int s = step();
+            if (s == 0) break;
+            i += s;
+        }
         return steps;
     }
 
-    void step() {
-        uint8_t* s = wire_data.data();
-        uint32_t seed = -1;
-        while (!dirty_wires.empty()) {
-            uint32_t w = dirty_wires.pop_front();
-            if (s[w] & S_DIRTY) { seed = w; break; }
+    int settle(int max_waves) {
+        int count = 0;
+        while (count++ < max_waves && !dirty_wires.empty()) {
+            run_wave();
         }
-        if (seed == -1) return;
+        if (!dirty_wires.empty()) {
+            printf("Unable to settle in %d waves, %zu dirty wires\n", count, dirty_wires.size());
+            return -1;
+        }
+        return count;
+    }
 
-        uint32_t* visited_ptr = visited_buf.data();
+    struct resolve_result {
+        uint8_t driven; int visited_n;
+    };
+    resolve_result resolve(uint32_t seed, uint32_t* visited_ptr) {
+        uint8_t* s = wire_data.data();
         uint32_t* stack_ptr = stack_buf.data();
         int vn = 0, sn = 1;
         stack_ptr[0] = seed;
@@ -154,9 +155,26 @@ struct Circuit {
                 }
             }
         }
+        return {driven, vn};
+    }
+
+
+    int step() {
+        uint8_t* s = wire_data.data();
+        uint32_t seed = -1;
+        int resolve_count = 0;
+        while (!dirty_wires.empty()) {
+            uint32_t w = dirty_wires.pop_front();
+            ++resolve_count;
+            if (s[w] & S_DIRTY) { seed = w; break; }
+        }
+        if (seed == -1) return resolve_count;
+
+        uint32_t* visited_ptr = visited_buf.data();
+        auto [driven, vn] = resolve(seed, visited_ptr);
 
         if (driven == 3) short_count++;
-        bool has_driven = (driven != 0); // && (driven != 3);
+        bool has_driven = (driven != 0);// && (driven != 3);
         uint8_t val = (driven == 2) ? 1 : 0; 
 
         for (int i = 0; i < vn; i++) {
@@ -168,17 +186,68 @@ struct Circuit {
                 trigger_gate(w);
             }
         }
+        return resolve_count;
     }
+
+    int sweep(bool active=false) {
+        short_count = 0;
+        int float_count = 0;
+        int flip_count = 0;
+        uint8_t* s = wire_data.data();
+        uint32_t* visited_ptr = visited_buf.data();
+        for (int seed=2; seed<wire_n(); ++seed) {
+            if (s[seed] & S_VISITED) continue;
+            auto [driven, vn] = resolve(seed, visited_ptr);
+            if (driven == 0) {
+                float_count++;
+                continue;
+            }
+            uint8_t val = (driven == 2) ? 1 : 0; 
+            if (driven == 3) {
+                short_count++;
+                //printf("Short detected on wire cluster including %d. Components: ", seed);
+                //for (int i=0; i<vn; ++i) printf("%d ", (int)visited_ptr[i]);
+                //printf("\n");
+                //continue;
+            }
+            for (int i=0; i<vn; ++i) {
+                uint32_t w = visited_ptr[i];
+                if ((s[w]&V_MASK) != val) {
+                    flip_count++;
+                    if (active) {
+                        s[w] = val | S_VISITED;
+                    }
+                }
+            }
+        }
+        for (int w=2; w<wire_n(); ++w) {
+            s[w] = s[w]&V_MASK;
+        }
+        printf("sweep -- shorts: %d  float: %d  flips: %d\n",
+            short_count, float_count, flip_count);
+        return flip_count;
+    }
+
+};
+
+struct FET {
+    uint32_t gate, term[2];
+    enum {P=0, N=1};
+    uint8_t type; 
+    int instance = -1;  // for debugging
+    auto tie() const { return std::tie(gate, term[0], term[1], type); }
+    bool operator<(const FET& o) const { return tie() < o.tie(); }  
+    bool operator==(const FET& o) const { return tie() == o.tie(); }
 };
 
 struct CircuitBuilder {
     std::vector<FET> fets;
     int wire_n = 2;
-    void add_fet(int g, int t0, int t1, uint8_t type) {
+    void add_fet(int g, int t0, int t1, uint8_t type, int instance) {
         if (t0>t1) {
             std::swap(t0, t1);
         }
-        fets.push_back({(uint32_t)g, {(uint32_t)t0, (uint32_t)t1}, type});
+        fets.push_back({(uint32_t)g, {(uint32_t)t0, (uint32_t)t1}, type, instance});
         wire_n = std::max({wire_n - 1, g, t0, t1}) + 1;
     }
     Circuit build() {
@@ -186,14 +255,13 @@ struct CircuitBuilder {
         c.wire_data.assign(wire_n, 0);
         c.wire_data[1] = 1; // VPWR
         c.dirty_wires.resize(wire_n + 1);
-        c.fets = fets;
         c.visited_buf.resize(wire_n);
         c.stack_buf.resize(wire_n);
 
         std::sort(fets.begin(), fets.end());
         std::vector<std::pair<uint32_t, uint32_t>> gate_to_nets;
         std::vector<std::pair<uint32_t, PackedPeer>> net_connectivity;
-        int inverter_count = 0;
+        // int inverter_count = 0;
         for (int i = 0; i < fets.size(); ++i) {
             auto const& a = fets[i];
             uint32_t gt = a.gate | ((uint32_t)a.type << 31);
@@ -206,11 +274,16 @@ struct CircuitBuilder {
                 net_connectivity.push_back({a.term[1], {a.term[0], gt}});
             }
         }
-        printf("Detected %d inverters\n", inverter_count);
+        // printf("Detected %d inverters\n", inverter_count);
         c.gate_to_nets.build(gate_to_nets, wire_n);
         c.net_connectivity.build(net_connectivity, wire_n);
 
-        for (int i = 2; i < wire_n; ++i) c.trigger_gate(i);
+        //for (int i = 2; i < wire_n; ++i) c.trigger_gate(i);
+        for (int i=0; i<100; ++i) {
+            int flips = c.sweep(true);
+            if (flips == 0) break;
+        }
+
         return c;
     }
 };

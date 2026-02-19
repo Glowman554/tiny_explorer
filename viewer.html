@@ -62,7 +62,9 @@
         }
 
         #ui { top: 10px; left: 10px; width: 220px; max-height: 90vh; }
-        #circuitMonitor { top: 10px; right: 10px; width: 280px; max-height: 60vh; }
+        #animatorPanel { top: 10px; left: 240px; width: 220px; max-height: 90vh; }
+        #circuitMonitor { top: 10px; right: 10px; width: 280px; max-height: 45vh; }
+        #vgaMonitor { top: 48vh; right: 10px; width: 280px; max-height: 45vh; }
         
         #logPanel {
             bottom: 10px; right: 10px;
@@ -142,6 +144,8 @@
         }
         .monitor-btn.state-low { background: #112; color: #58a6ff; border-color: #235; }
         .monitor-btn.state-high { background: #321; color: #ffa658; border-color: #642; }
+        .monitor-btn.state-flipped { background: #440; color: #ff0; border-color: #ff0; box-shadow: 0 0 5px rgba(255, 255, 0, 0.4); }
+        .monitor-special-btn.state-flipped { background: #440; color: #ff0; border-color: #ff0; box-shadow: 0 0 5px rgba(255, 255, 0, 0.4); }
         .monitor-group-label { font-size: 9px; color: #555; text-transform: uppercase; margin-bottom: 4px; margin-top: 8px; }
         
         /* Hide scrollbars but keep functionality */
@@ -169,11 +173,23 @@
                 <label>Highlight Nets</label>
                 <input type="text" id="netSearch" placeholder="Search net...">
                 <select id="netSelect" size="10" multiple></select>
-                <button id="btnClearNet">Clear Highlight</button>
+                <input type="text" id="netIdList" placeholder="Wire IDs (e.g. 1, 2, 5-10)" style="width: 100%; background: #1a1a1a; color: #eee; border: 1px solid #444; padding: 6px; margin-top: 5px; box-sizing: border-box; border-radius: 4px; font-family: monospace; font-size: 11px;">
+                <div style="display: flex; gap: 5px; margin-top: 5px;">
+                    <button id="btnHighlightIds" style="margin-top: 0; flex: 1;">Highlight IDs</button>
+                    <button id="btnClearNet" style="margin-top: 0; flex: 1;">Clear</button>
+                </div>
             </div>
             <div class="control-group">
                 <label>Global Opacity</label>
                 <input type="range" id="alphaSlider" min="0.1" max="1.0" step="0.1" value="0.8">
+            </div>
+            <div class="control-group">
+                <label>Perspective</label>
+                <input type="range" id="perspSlider" min="0.0" max="1.0" step="0.01" value="0.5">
+            </div>
+            <div class="control-group">
+                <label>Explode Layers</label>
+                <input type="range" id="explodeSlider" min="1.0" max="20.0" step="0.1" value="1.0">
             </div>
             <div class="control-group">
                 <div class="layer-toggle">
@@ -191,10 +207,43 @@
         </div>
     </div>
 
+    <div id="animatorPanel" class="panel">
+        <div class="panel-header">Animation</div>
+        <div class="panel-content">
+            <div class="control-group">
+                <button id="btnCaptWp">Capture Waypoint</button>
+                <button id="btnClearWp">Clear Waypoints</button>
+                <div style="margin-top: 8px;">
+                    <label>Transition Time (s)</label>
+                    <input type="number" id="animTime" value="2.0" step="0.5" min="0.5" style="width: 100%; background: #1a1a1a; color: #eee; border: 1px solid #444; padding: 4px; box-sizing: border-box; border-radius: 4px;">
+                </div>
+                <button id="btnPlayAnim" style="margin-top: 10px; background: #284; border-color: #3a5;">Play</button>
+            </div>
+            <div id="wpList" style="font-size: 10px; color: #888; max-height: 100px; overflow-y: auto;">
+                0 Waypoints
+            </div>
+        </div>
+    </div>
+
     <div id="circuitMonitor" class="panel">
         <div class="panel-header">Circuit Monitoring</div>
         <div id="circuitMonitorContent" class="panel-content">
             <div style="padding:10px; color:#666;">Waiting for netlist...</div>
+        </div>
+    </div>
+
+    <div id="vgaMonitor" class="panel">
+        <div class="panel-header">VGA Monitor</div>
+        <div id="vgaMonitorContent" class="panel-content">
+            <div class="monitor-controls" style="margin-top: 10px;">
+                <button id="btnVgaInit">Init VGA</button>
+                <button id="btnVgaStep">Tick 1k</button>
+                <button id="btnVgaRun">Run Continuous</button>
+            </div>
+            <div style="background:#000; border-radius:4px; margin-top:10px; overflow:hidden; border: 1px solid #222;">
+                <canvas id="vgaCanvas" style="width:100%; height:auto; image-rendering:pixelated; display:none;"></canvas>
+                <div id="vgaPlaceholder" style="padding:40px; text-align:center; color:#444; font-size:12px;">VGA not initialized</div>
+            </div>
         </div>
     </div>
 

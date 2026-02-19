@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <vector>
@@ -7,19 +8,20 @@
 #include <cstring>
 #include <cstdlib>
 #include <chrono>
-#include <tuple>
-
-
-#include "gdstk/cell.hpp"
-#include "gdstk/reference.hpp"
-#include "gdstk/utils.hpp"
 #include <sys/stat.h>
 
-#include "geom.h"
-#include "cells.h"
-#include "cell_processing.h"
-
 #include <gdstk/gdstk.hpp>
+#include <fstream>
+#include <set>
+
+#include "extractor.h"
+#include "fetsim.h"
+
+#ifdef WASM
+#define WASM_EXPORT(name) __attribute__((export_name(name)))
+#else
+#define WASM_EXPORT(name)
+#endif
 
 #ifdef WASM
 extern "C" {
@@ -32,416 +34,11 @@ extern "C" {
 extern "C" {
 void wasm_arena_init(uint32_t mode);
 uint64_t wasm_arena_get_usage();
-void* wasm_malloc(size_t size);
-void wasm_free(void* ptr);
 }
-
-using CellID = int;
-using InstID = int;
-struct Instance : Rect {
-    CellID cell_id;
-    InstID inst_id;
-    Transform tform;
-};
-
-struct RectWire : Rect { int wire; };
-constexpr int RECT_WIRE_FIELDS = 5; // x1, y1, x2, y2, wire
-
-struct WireLink {
-    InstID inst_a, inst_b;
-    int wire_a, wire_b;
-    auto tie() const { return std::tie(inst_a, inst_b, wire_a, wire_b); }
-    bool operator<(const WireLink& o) const { return tie() < o.tie(); }
-    bool operator==(const WireLink& o) const { return tie() == o.tie(); }
-};
-
-struct CircuitExtractor {
-    gdstk::Library glib;
-
-    std::vector<Cell> cells;
-    std::string pdk = "sky130A"; // default
-    std::string topOverride;
-    std::map<const gdstk::Cell*, int> gcell2id;
-
-    std::vector<Instance> instances; // just for viz
-
-    struct InstLayer {
-        std::vector<Instance> instances;
-        std::vector<BVHNode> bvh;
-    };
-    std::array<InstLayer, L_COUNT> instLayers;
-    Circuit circuit;
-
-    std::vector<int> instOffsets;
-    std::vector<int> segment2flat;
-    DSU globalDSU;
-    std::vector<std::pair<int, std::string>> labeledWires;
-
-    std::vector<RectWire> flatRects;
-    std::array<uint32_t, L_COUNT + 1> flatLayerOffsets;
-
-    bool run(const char * path) {
-        if (!load(path)) return false;
-        return process();
-    }
-
-    bool load(const char * path) {
-        return loadLib(path);
-    }
-
-    bool process() {
-        gdstk::Cell * top = getTop();
-        if (!top) return false;
-        preprocessCells();
-        const Cell topCell = cells[gcell2id[top]];
-        if (topCell.groundRect == -1 || topCell.powerRect == -1) {
-            fprintf(stderr, "Error: missing power/ground labels in top cell\n");
-            return false;
-        }
-        
-        walkRefs(top, Transform());
-        wireCells();
-        buildNetlist();
-
-        printStats();
-        return true;
-    }
-
-    bool loadLib(const char * path) {
-        gdstk::ErrorCode err = gdstk::ErrorCode::NoError;
-        std::string s_path = path;
-        const double unit = 1e-9;
-        if (s_path.size() >= 4 && s_path.substr(s_path.size() - 4) == ".oas") {
-            glib = gdstk::read_oas(path, unit, 0, &err);
-        } else {
-            glib = gdstk::read_gds(path, unit, 0, nullptr, &err);
-        }
-        if (err != gdstk::ErrorCode::NoError) {
-            printf("Error: unable to load library %s (gdstk ErrorCode %d)\n", path, (int)err);
-            return false;
-        }
-        return true;
-    }
-
-    gdstk::Cell * getTop() {
-        if (!topOverride.empty()) {
-            for (uint32_t i = 0; i < glib.cell_array.count; ++i) {
-                if (topOverride == glib.cell_array[i]->name) {
-                    gdstk::Cell * top = glib.cell_array[i];
-                    printf("Top cell (override): %s\n", top->name);
-                    return top;
-                }
-            }
-            printf("Warning: override top cell '%s' not found, falling back to auto-discovery.\n", topOverride.c_str());
-        }
-
-        gdstk::Array<gdstk::Cell*> tops = {};
-        gdstk::Array<gdstk::RawCell*> raw_tops = {};
-        glib.top_level(tops, raw_tops);
-        if (tops.count == 0) {
-            printf("Error: top cell not found.");
-            return nullptr;
-        }
-        gdstk::Cell * top = tops[0];
-        printf("Top cell: %s\n", top->name);
-        tops.clear(); raw_tops.clear();
-        return top;
-    }
-
-    void preprocessCells() {
-        fracture_cell_func fracture_polygons;
-        cells.resize(glib.cell_array.count);
-        for (CellID cell_id=0; cell_id<cells.size(); ++cell_id) {
-            gdstk::Cell* gcell = glib.cell_array[cell_id];
-            gcell2id[gcell] = cell_id;
-            Cell & cell = cells[cell_id];
-            cell.name = gcell->name;
-            normalize_gcell(gcell);
-            fracture_polygons(gcell, cell, pdk);
-            processFETLayers(cell);
-            mergeCellWires(cell);
-            resolveLabelsGdstk(gcell, cell, pdk);
-            assignWireIDs(cell);
-            extractFETs(cell);
-            cell.isFiller = isFillerCell(cell.name) && gcell->reference_array.count == 0;
-            if (cell.rects.size() > 1000) {
-                printf("Big cell: %s (%zu rects, %u wires, %zu FETs)\n", 
-                    cell.name.c_str(), cell.rects.size(), cell.wireDSU.count(), cell.fets.size());
-            }
-        }
-    }
-
-    void walkRefs(gdstk::Cell* gcell, const Transform & tform) {
-        CellID cell_id = gcell2id[gcell];
-        const Cell & cell = cells[cell_id];
-        InstID inst_id = instances.size();
-        instances.push_back({tform.apply(cell.bbox), cell_id, inst_id, tform});
-        // these will be used for per-layer instance intersection queries
-        for (int li=0; li<L_COUNT; ++li) {
-            if (cell.layers[li].rectCount == 0) continue;
-            Rect bbox = cell.layers[li].bvh[0].bbox;
-            instLayers[li].instances.push_back({tform.apply(bbox), cell_id, inst_id, tform});
-        }
-
-        for (int i=0; i<gcell->reference_array.count; ++i) {
-            const gdstk::Reference * ref = gcell->reference_array[i];
-            if (ref->type != gdstk::ReferenceType::Cell) continue;
-            
-            if (!Transform::isSupported(*ref)) {
-                printf("Warning: skipping unsupported reference in cell %s (rotation=%.2f, mag=%.2f, origin=(%.2f, %.2f))\n",
-                    gcell->name, ref->rotation, ref->magnification, ref->origin.x, ref->origin.y);
-                continue;
-            }
-
-            Transform child_tform(*ref);
-            walkRefs(ref->cell, tform.compose(child_tform));
-        }
-    }
-
-
-    void wireCells() {
-        for (int i=L_N_TERM; i<L_COUNT; ++i) {
-            auto & layer = instLayers[i];
-            if (layer.instances.empty()) continue;
-            buildLayerBVH(layer.instances, 0, layer.instances.size(), layer.bvh);
-            int overlapCount = 0;
-            collideSelf(layer.bvh, layer.instances, [&](int inst_a, int inst_b) {
-                ++overlapCount;
-                wirePair(i, inst_a, inst_b);
-            });
-            printf("%9s - instN: %zu, overlapCount: %d\n", getLayerName((LayerID)i), layer.instances.size(), overlapCount);
-        }
-        unique_sort(wires);
-    }
-
-    std::vector<WireLink> wires;
-
-    void wirePair(int lid, int idxA, int idxB) {
-        const auto &instA = instLayers[lid].instances[idxA];
-        const auto &instB = instLayers[lid].instances[idxB];
-        Cell &cellA = cells[instA.cell_id];
-        Cell &cellB = cells[instB.cell_id];
-        const auto &qA = cellA.layers[lid];
-        const auto &qB = cellB.layers[lid];
-
-        auto pred = [&](const Rect& ra, const Rect& rb) {
-            return touches(instA.tform.apply(ra), instB.tform.apply(rb));
-        };
-
-        collideTrees(qA.bvh, cellA.rects, qB.bvh, cellB.rects, [&](int rA, int rB) {
-            int wA = cellA.rect2wire[rA];
-            int wB = cellB.rect2wire[rB];
-            
-            WireLink link = {instA.inst_id, instB.inst_id, wA, wB};
-            if (link.inst_a > link.inst_b || (link.inst_a == link.inst_b && link.wire_a > link.wire_b)) {
-                std::swap(link.inst_a, link.inst_b);
-                std::swap(link.wire_a, link.wire_b);
-            }
-            wires.push_back(link);
-        }, pred);
-    }
-
-    void buildNetlist() {
-        instOffsets.resize(instances.size());
-        int totalSegments = 0;
-        for (size_t i = 0; i < instances.size(); i++) {
-            instOffsets[i] = totalSegments;
-            totalSegments += (int)cells[instances[i].cell_id].wireCount;
-        }
-
-        globalDSU = DSU(totalSegments);
-        for (const auto& link : wires) {
-            globalDSU.unite(instOffsets[link.inst_a] + link.wire_a,
-                           instOffsets[link.inst_b] + link.wire_b);
-        }
-
-        segment2flat.assign(globalDSU.p.size(), DSU::NeedsID);
-        segment2flat[globalDSU.find(0)] = 0; // GND
-        segment2flat[globalDSU.find(1)] = 1; // PWR
-        
-        int next_id = 2;
-        const Cell& top = cells[instances[0].cell_id];
-        for (auto const& [name, rIdx] : top.label2rect) {
-            int root = globalDSU.find(top.rect2wire[rIdx]);
-            if (segment2flat[root] == DSU::NeedsID) {
-                segment2flat[root] = next_id++;
-            }
-            labeledWires.push_back({segment2flat[root], name});
-        }
-
-        int wireCount = globalDSU.assign_ids(segment2flat, next_id);
-
-        CircuitBuilder builder;
-        for (size_t i = 0; i < instances.size(); i++) {
-            const Cell& cell = cells[instances[i].cell_id];
-            int offset = instOffsets[i];
-            for (const auto& fet : cell.fets) {
-                builder.add_fet(segment2flat[offset + fet.gate],
-                               segment2flat[offset + fet.term[0]],
-                               segment2flat[offset + fet.term[1]], fet.type);
-            }
-        }
-
-        circuit = builder.build();
-        // for (auto const& lw : labeledWires) {
-        //     printf("Net %d (%s): %zu gates, %zu terms\n", lw.first, lw.second.c_str(), 
-        //            circuit.gate_to_nets[lw.first].size(), circuit.net_connectivity[lw.first].size());
-        // }
-        printf("Global Netlist Statistics:\n  Segments: %d\n  Wires: %d\n  FETs: %zu\n", 
-               totalSegments, wireCount, circuit.fet_n());
-
-        exportRects();
-    }
-
-
-    void exportRects() {
-        printf("Flattening and optimizing layers...\n");
-        flatRects.clear();
-        flatLayerOffsets.fill(0);
-        
-        std::vector<RectWire> layerTemp;
-        for (int li = 0; li < L_COUNT; li++) {
-            flatLayerOffsets[li] = (uint32_t)flatRects.size();
-            if (li == L_DIFF || li == L_NWELL) continue;
-            
-            layerTemp.clear();
-            for (size_t ii = 0; ii < instances.size(); ii++) {
-                const auto& inst = instances[ii];
-                const auto& cell = cells[inst.cell_id];
-                if (cell.isFiller) continue;
-                const auto& layer = cell.layers[li];
-                if (layer.rectCount == 0) continue;
-                
-                for (uint32_t ri = 0; ri < layer.rectCount; ri++) {
-                    uint32_t rectIdx = layer.rectStart + ri;
-                    int flatWire = -1; // some rects don't have wire_id (NWELL)
-                    int localWire = cell.rect2wire[rectIdx];
-                    if (localWire >= 0) {
-                        flatWire = segment2flat[instOffsets[ii] + localWire];
-                    }
-                    Rect r = inst.tform.apply(cell.rects[rectIdx]);
-                    layerTemp.push_back({r, flatWire});
-                }
-            }
-            
-            if (!layerTemp.empty()) {
-                int discarded = optimizeRects(layerTemp);
-                int initial = (int)layerTemp.size() + discarded;
-                float pct = initial > 0 ? (float)discarded * 100.0f / initial : 0.0f;
-                flatRects.insert(flatRects.end(), layerTemp.begin(), layerTemp.end());
-                printf("  %-10s: %zu rects (%d discarded, %.1f%%)\n", getLayerName((LayerID)li), layerTemp.size(), discarded, pct);
-            }
-        }
-        flatLayerOffsets[L_COUNT] = (uint32_t)flatRects.size();
-    }
-
-
-    void printStats() {
-        printf("Total flat rects: %zu\n", flatRects.size());
-        printf("Total instances: %zu\n", instances.size());
-        printf("Total crosscell wires: %zu\n", wires.size());
-    }    
-
-    ~CircuitExtractor() {
-        glib.free_all();
-    }
-};
-
-
-
-CircuitExtractor* g_extractor = nullptr;
-
-extern "C" {
-    void wasm_init() {
-        if (!g_extractor) {
-            g_extractor = new CircuitExtractor();
-        }
-    }
-
-    bool wasm_load_file(const char* path, const char* pdk) {
-        if (!g_extractor) return false;
-        g_extractor->pdk = pdk;
-        return g_extractor->load(path);
-    }
-
-    bool wasm_process() {
-        if (!g_extractor) return false;
-        return g_extractor->process();
-    }
-
-    void* wasm_get_rect_data_ptr() {
-        return g_extractor ? g_extractor->flatRects.data() : nullptr;
-    }
-
-    uint32_t wasm_get_rect_data_size() {
-        return g_extractor ? (uint32_t)(g_extractor->flatRects.size() * sizeof(RectWire)) : 0;
-    }
-
-    void* wasm_get_layer_offsets_ptr() {
-        return g_extractor ? (void*)g_extractor->flatLayerOffsets.data() : nullptr;
-    }
-
-    uint32_t wasm_get_layer_offsets_size() {
-        return g_extractor ? (uint32_t)(g_extractor->flatLayerOffsets.size() * sizeof(uint32_t)) : 0;
-    }
-
-    // Circuit Simulation API
-    uint32_t wasm_circuit_get_wire_count() {
-        return g_extractor ? (uint32_t)g_extractor->circuit.wire_n() : 0;
-    }
-
-    uint32_t wasm_circuit_get_labeled_count() {
-        return g_extractor ? (uint32_t)g_extractor->labeledWires.size() : 0;
-    }
-
-    int wasm_circuit_get_labeled_id(uint32_t idx) {
-        if (g_extractor && idx < g_extractor->labeledWires.size()) {
-            return g_extractor->labeledWires[idx].first;
-        }
-        return -1;
-    }
-
-    const char* wasm_circuit_get_labeled_name(uint32_t idx) {
-        if (g_extractor && idx < g_extractor->labeledWires.size()) {
-            return g_extractor->labeledWires[idx].second.c_str();
-        }
-        return nullptr;
-    }
-
-    uint32_t wasm_circuit_get_fet_count() {
-        return g_extractor ? (uint32_t)g_extractor->circuit.fet_n() : 0;
-    }
-
-    void wasm_circuit_set_input(uint32_t wire, uint32_t val) {
-        if (g_extractor && wire < g_extractor->circuit.wire_n()) {
-            g_extractor->circuit.set_input(wire, (uint8_t)val);
-        }
-    }
-
-    int wasm_circuit_run_wave() {
-        return g_extractor ? g_extractor->circuit.run_wave() : 0;
-    }
-
-    void* wasm_circuit_get_wire_data_ptr() {
-        return g_extractor ? g_extractor->circuit.wire_data.data() : nullptr;
-    }
-
-    void* wasm_circuit_get_fet_on_ptr() {
-        return nullptr; // fet_on array removed
-    }
-
-    int wasm_circuit_get_short_count() {
-        return g_extractor ? g_extractor->circuit.short_count : 0;
-    }
-}
-
-#ifdef WASM
-int main() { return 0; }
-#endif
-
 
 struct VGASimulator {
     Circuit& circuit;
+    
     std::map<std::string, int> name2id;
     int clk, rst_n, ena;
     int in_pins[8], out_pins[8];
@@ -470,6 +67,19 @@ struct VGASimulator {
         vga_buffer.assign(width * height * 3, 0);
     }
 
+    void reset() {
+        if (!isValid()) return;
+        if (ena != -1) circuit.set_signal(ena, 1);
+        circuit.set_signal(rst_n, 0);
+        // TT-specific reset behavior
+        if (in_pins[1] != -1) circuit.set_signal(in_pins[1], 1);
+        if (in_pins[4] != -1) circuit.set_signal(in_pins[4], 1);
+        for (int i = 0; i < 10; ++i) tick();
+        if (in_pins[1] != -1) circuit.set_signal(in_pins[1], 0);
+        if (in_pins[4] != -1) circuit.set_signal(in_pins[4], 0);
+        circuit.set_signal(rst_n, 1);
+    }
+
     bool isValid() const { return clk != -1 && rst_n != -1; }
 
     void run(int max_ticks = 1000000) {
@@ -478,19 +88,10 @@ struct VGASimulator {
         printf("VGA Sim: clk=%d, rst_n=%d, outputs=[", clk, rst_n);
         for(int i=0; i<8; ++i) printf("%d%s", out_pins[i], i==7 ? "]\n" : ",");
 
-        if (ena != -1) circuit.set_input(ena, 1);
-        
         printf("Resetting...\n");
-        circuit.set_input(rst_n, 0);
-        circuit.set_input(in_pins[1], 1);
-        circuit.set_input(in_pins[4], 1);
-        for (int i = 0; i < 100; ++i) tick();
-        circuit.set_input(in_pins[1], 0);
-        circuit.set_input(in_pins[4], 0);
+        reset();
         
         printf("Running simulation...\n");
-        circuit.set_input(rst_n, 1);
-        
         auto t_start = std::chrono::high_resolution_clock::now();
         for (int i = 0; i < max_ticks; ++i) {
             tick();
@@ -513,20 +114,13 @@ struct VGASimulator {
         return name2id.count(name) ? name2id.at(name) : -1;
     }
 
-    bool settle(int max_settle_waves=100) {
-        int wave = 0;
-        while (!circuit.is_settled() && wave < max_settle_waves) {
-            int sn = circuit.run_wave();
-            ++wave;
-        }
-        //circuit.validate();
-        return circuit.is_settled();
+    void settle(int max_waves=200) {
+        circuit.settle(max_waves);
     }
 
-
     void tick() {
-        circuit.set_input(clk, 0); settle();
-        circuit.set_input(clk, 1); settle();
+        circuit.set_signal(clk, 0); settle();
+        circuit.set_signal(clk, 1); settle();
 
         // Sample outputs (assuming TinyTapeout pinout)
         // uo_out[0..2] = R1, G1, B1
@@ -567,6 +161,112 @@ struct VGASimulator {
     }
 };
 
+struct Module {
+    CircuitExtractor extractor;
+    Circuit & circuit;
+    VGASimulator* vga = nullptr;
+
+    Module() : circuit(extractor.circuit) {}
+
+};
+
+Module* _g_mod = nullptr;
+Module* g_mod() {
+    if (!_g_mod) {
+        _g_mod = new Module();
+    }
+    return _g_mod;
+}
+
+#define WASM_ARRAY_(NAME, ATTR) \
+    WASM_EXPORT("wasm_" #NAME "_ptr")     \
+    extern "C" void* wasm_##NAME##_ptr() {         \
+        return g_mod()->ATTR.data();  \
+    }                                       \
+    WASM_EXPORT("wasm_" #NAME "_size")    \
+    extern "C" uint32_t wasm_##NAME##_size() {     \
+        auto & arr = g_mod()->ATTR;   \
+        return arr.size() * sizeof(arr[0]); \
+    }
+
+#define WASM_ARRAY(NAME) WASM_ARRAY_(NAME, NAME)
+
+#define WASM_INT_(NAME, ATTR) \
+    WASM_EXPORT("wasm_" #NAME) \
+    extern "C" int wasm_##NAME() { \
+        return g_mod()->ATTR; \
+    }
+
+extern "C" {
+    WASM_EXPORT("wasm_load_file")
+    bool wasm_load_file(const char* path, const char* pdk) {
+        g_mod()->extractor.pdk = pdk;
+        return g_mod()->extractor.load(path);
+    }
+
+    WASM_EXPORT("wasm_process")
+    bool wasm_process() {
+        return g_mod()->extractor.process();
+    }
+
+    WASM_ARRAY_(flatRects, extractor.flatRects);
+    WASM_ARRAY_(flatLayerOffsets, extractor.flatLayerOffsets);
+    WASM_ARRAY_(wireData, circuit.wire_data);
+    WASM_INT_(labeledCount, extractor.labeledWires.size());
+    WASM_INT_(shortCount, circuit.short_count);
+
+    WASM_EXPORT("wasm_circuit_get_labeled_id")
+    int wasm_circuit_get_labeled_id(uint32_t idx) {
+        const auto & lw = g_mod()->extractor.labeledWires;
+        if (idx < lw.size()) {
+            return lw[idx].first;
+        }
+        return -1;
+    }
+
+    WASM_EXPORT("wasm_circuit_get_labeled_name")
+    const char* wasm_circuit_get_labeled_name(uint32_t idx) {
+        const auto & lw = g_mod()->extractor.labeledWires;
+        if (idx < lw.size()) {
+            return lw[idx].second.c_str();
+        }
+        return nullptr;
+    }
+
+    WASM_EXPORT("wasm_circuit_set_input")
+    void wasm_circuit_set_input(uint32_t wire, uint32_t val) {
+        if (wire < g_mod()->circuit.wire_n()) {
+            g_mod()->circuit.set_signal(wire, (uint8_t)val);
+        }
+    }
+
+    WASM_EXPORT("wasm_circuit_run_wave")
+    int wasm_circuit_run_wave() {
+        return g_mod()->circuit.run_wave();
+    }
+
+    WASM_EXPORT("wasm_vga_init")
+    void wasm_vga_init() {
+        if (g_mod()->vga) delete g_mod()->vga;
+        g_mod()->vga = new VGASimulator(g_mod()->circuit, g_mod()->extractor.labeledWires);
+        g_mod()->vga->reset();
+    }
+
+    WASM_EXPORT("wasm_vga_tick")
+    void wasm_vga_tick(int n) {
+        if (g_mod()->vga) {
+            for (int i=0; i<n; ++i) g_mod()->vga->tick();
+        }
+    }
+
+    WASM_ARRAY_(vga_buffer, vga->vga_buffer);
+    WASM_INT_(vga_width, vga->width);
+    WASM_INT_(vga_height, vga->height);
+}
+
+#ifdef WASM
+int main() { return 0; }
+#endif
 
 
 #ifndef WASM
@@ -576,8 +276,8 @@ int main() {
     wasm_arena_init(1);
     //const char * path = "gds/ihp-25a/tt_um_znah_vga_ca.gds", *pdk = "ihp-sg13g2";
     //const char * path = "gds/sky-25b/tt_um_pongsagon_tinygpu_v2.oas", *pdk = "sky130A";
-    //const char * path = "gds/09/tt_um_rejunity_atari2600.gds", *pdk = "sky130A";
-    const char * path = "gds/09/tt_um_znah_vga_ca.gds", *pdk = "sky130A";
+    const char * path = "gds/09/tt_um_rejunity_atari2600.gds", *pdk = "sky130A";
+    //const char * path = "gds/09/tt_um_znah_vga_ca.gds", *pdk = "sky130A";
     //const char * path = "gds/gf-0p2/tt_um_2048_vga_game.oas", *pdk = "gf180mcuD";
     //const char * path = "gds/09/tt_um_a1k0n_nyancat.gds", *pdk = "sky130A";
     //const char * path = "gds/08/tt_um_a1k0n_vgadonut.gds", *pdk = "sky130A";
@@ -603,12 +303,126 @@ int main() {
 
     VGASimulator sim(proc.circuit, proc.labeledWires);
     if (sim.isValid()) {
-        sim.run(380000);
-        //sim.run(10);
+        //sim.run(380000);
+        //sim.run(100);
     } else {
         printf("No VGA pins detected, skipping simulation.\n");
     }
+    return 0;
 
+    // const InstID inst_id = 4426;
+    // printf("\n--- All Wires for Inst %d ---\n", inst_id);
+    // std::vector<int> wires;
+    // if (4426 < (int)proc.instances.size()) {
+    //     const auto& inst = proc.instances[inst_id];
+    //     const auto& cell = proc.cells[inst.cell_id];
+    //     int offset = proc.instOffsets[inst_id];
+    //     std::set<int> printed;
+    //     for (int local = 0; local < (int)cell.wireCount; ++local) {
+    //         int globalWire = proc.segment2flat[offset + local];
+    //         wires.push_back(globalWire);
+    //         if (globalWire >= 2 && printed.insert(globalWire).second) {
+    //             proc.printWire(globalWire);
+    //         }
+    //     }
+    // }
+    // printf("\n--------------------------------\n");
+    // // print ws as comma separated list
+    // std::sort(wires.begin(), wires.end());
+    // wires.erase(std::unique(wires.begin(), wires.end()), wires.end());
+    // for (size_t i = 0; i < wires.size(); ++i) {
+    //     printf("%d%s", wires[i], (i == wires.size() - 1) ? "" : ", ");
+    // }
+    // printf("\n");
+
+    // generate graphviz dot file with component, conneted to wire
+    {
+        int target = 42256;
+        std::set<int> cluster_wires;
+        std::vector<int> q = {target};
+        cluster_wires.insert(target);
+        
+        // Find full channel neighborhood (S/D connected)
+        for (size_t head = 0; head < q.size(); ++head) {
+            int w = q[head];
+            for (const auto& fet : proc.builder.fets) {
+                int peer = -1;
+                if (fet.term[0] == (uint32_t)w) peer = fet.term[1];
+                else if (fet.term[1] == (uint32_t)w) peer = fet.term[0];
+                
+                if (peer != -1 && peer >= 2 && cluster_wires.find(peer) == cluster_wires.end()) {
+                    cluster_wires.insert(peer);
+                    q.push_back(peer);
+                }
+            }
+        }
+
+        std::set<int> viz_wires = cluster_wires;
+        std::set<size_t> viz_fets;
+
+        // Include any FET that has a terminal or gate in the cluster
+        for (size_t i = 0; i < proc.builder.fets.size(); ++i) {
+            const auto& fet = proc.builder.fets[i];
+            bool t0_in = cluster_wires.count(fet.term[0]);
+            bool t1_in = cluster_wires.count(fet.term[1]);
+            bool g_in = cluster_wires.count(fet.gate);
+
+            if (t0_in || t1_in || g_in) {
+                viz_fets.insert(i);
+                viz_wires.insert(fet.gate);
+                viz_wires.insert(fet.term[0]);
+                viz_wires.insert(fet.term[1]);
+                printf("FET: inst %zu, g %d t %d %d\n", i, 
+                    fet.gate, fet.term[0], fet.term[1]);
+            }
+        }
+
+        std::ofstream f("dump.dot");
+        f << "digraph G {\n  rankdir=LR;\n  node [fontname=\"sans-serif\", fontsize=10];\n";
+        
+        std::map<int, std::string> net2name;
+        for (auto const& lw : proc.labeledWires) net2name[lw.first] = lw.second;
+
+        for (int w : viz_wires) {
+            std::string label;
+            if (w == 0) label = "VSS";
+            else if (w == 1) label = "VDD";
+            else label = net2name.count(w) ? net2name[w] : "w" + std::to_string(w);
+            
+            std::string color = "black";
+            int penwidth = 1;
+            if (w == target) {
+                color = "blue";
+                penwidth = 3;
+            } else if (cluster_wires.count(w)) {
+                color = "darkgreen";
+                penwidth = 2;
+            }
+
+            f << "  w" << w << " [label=\"" << label << "\", color=\"" << color << "\", penwidth=" << penwidth << (w < 2 ? ", shape=plaintext" : "") << "];\n";
+        }
+
+        for (size_t i : viz_fets) {
+            const auto& fet = proc.builder.fets[i];
+            bool is_n = (fet.type == FET::N);
+            uint8_t g_val = (fet.gate < proc.circuit.wire_data.size()) ? (proc.circuit.wire_data[fet.gate] & 1) : 0;
+            bool is_open = is_n ? (g_val == 1) : (g_val == 0);
+
+            std::string type_str = is_n ? "N" : "P";
+            std::string color = is_n ? "green" : "red";
+            
+            f << "  f" << i << " [shape=box, label=\"" << type_str << "(" << fet.instance << ")" << "\", color=\"" << color 
+              << "\", width=0.2, height=0.2" << (is_open ? ", penwidth=3" : "") << "];\n";
+            
+            std::string chan_style = is_open ? " [arrowhead=none, penwidth=3]" : " [arrowhead=none]";
+            f << "  f" << i << " -> w" << fet.term[0] << chan_style << ";\n";
+            f << "  f" << i << " -> w" << fet.term[1] << chan_style << ";\n";
+            if (fet.gate >= 0) f << "  w" << fet.gate << " -> f" << i << " [style=dashed];\n";
+        }
+        f << "}\n";
+        printf("Expanded neighborhood of wire %d dumped to dump.dot (%zu wires, %zu FETs)\n", 
+               target, viz_wires.size(), viz_fets.size());
+    }
     return 0;
 }
 

@@ -41,6 +41,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef WASM
+#define WASM_EXPORT(name) __attribute__((export_name(name)))
+#else
+#define WASM_EXPORT(name)
+#endif
+
 extern "C" {
     // Global state
     static bool g_use_arena = false;
@@ -88,6 +94,7 @@ extern "C" {
 #endif
     }
 
+    WASM_EXPORT("wasm_arena_init")
     void wasm_arena_init(uint32_t mode) {
         g_use_arena = (mode != 0);
         
@@ -114,6 +121,7 @@ extern "C" {
         }
     }
 
+    WASM_EXPORT("wasm_arena_get_usage")
     uint64_t wasm_arena_get_usage() {
         uint64_t total = 0;
         ArenaBlock* b = g_first_block;
@@ -170,11 +178,13 @@ extern "C" {
         return ptr;
     }
 
+    WASM_EXPORT("wasm_malloc")
     void* wasm_malloc(size_t size) {
         if (g_use_arena) return arena_alloc(size);
         return malloc(size);
     }
 
+    WASM_EXPORT("wasm_free")
     void wasm_free(void* ptr) {
         if (!ptr || !g_use_arena) {
             if (ptr && !g_use_arena) free(ptr);

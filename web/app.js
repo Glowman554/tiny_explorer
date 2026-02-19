@@ -16,6 +16,9 @@ const projectCountBadge = document.getElementById('project-count');
 const searchInput = document.getElementById('project-search');
 const backButton = document.getElementById('back-button');
 const noResults = document.getElementById('no-results');
+const modalOverlay = document.getElementById('modal-overlay');
+const modalClose = document.getElementById('modal-close');
+const jsonMetadata = document.getElementById('json-metadata');
 
 
 // Initialize
@@ -37,6 +40,10 @@ async function init() {
     searchInput.addEventListener('input', handleSearch);
     backButton.addEventListener('click', showShuttleSelection);
     window.addEventListener('hashchange', handleHashChange);
+    modalClose.addEventListener('click', closeModal);
+    modalOverlay.addEventListener('click', (e) => {
+        if (e.target === modalOverlay) closeModal();
+    });
 
     // Initial check for hash
     handleHashChange();
@@ -116,7 +123,7 @@ async function selectShuttle(shuttle, updateHash = true) {
 
     
     try {
-        const response = await fetch(`${API_BASE}/${shuttle.id}.json?fields=title,author,description,tiles`);
+        const response = await fetch(`${API_BASE}/${shuttle.id}.json`);
 
         const data = await response.json();
         currentProjects = data.projects || [];
@@ -132,8 +139,16 @@ async function selectShuttle(shuttle, updateHash = true) {
 }
 
 
+// Helper to highlight search query
+function highlightText(text, query) {
+    if (!query) return text || '';
+    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escapedQuery})`, 'gi');
+    return (text || '').replace(regex, '<mark>$1</mark>');
+}
+
 // Render Projects
-function renderProjects(projects) {
+function renderProjects(projects, query = '') {
     projectBody.innerHTML = '';
     
     if (projects.length === 0) {
@@ -147,17 +162,20 @@ function renderProjects(projects) {
         const row = document.createElement('tr');
         row.innerHTML = `
             <td>
-                <div class="project-title">${project.title || 'Untitled Project'}</div>
+                <div class="project-title">${highlightText(project.title, query) || 'Untitled Project'}</div>
                 <div style="margin-top: 0.4rem; display: flex; align-items: center; gap: 0.5rem;">
-                    <div class="macro-badge">${project.macro}</div>
-                    <span style="font-size: 0.75rem; color: var(--text-secondary); font-family: monospace;">${project.tiles || '1x1'}</span>
+                    <div class="macro-badge">${highlightText(project.macro, query)}</div>
+                    <span style="font-size: 0.75rem; color: var(--text-secondary); font-family: monospace;">${highlightText(project.tiles, query) || '1x1'}</span>
                 </div>
             </td>
 
-            <td class="project-author">${project.author || 'Anonymous'}</td>
-            <td class="project-desc">${project.description || 'No description provided.'}</td>
+            <td class="project-author">${highlightText(project.author, query) || 'Anonymous'}</td>
+            <td class="project-desc">${highlightText(project.description, query) || 'No description provided.'}</td>
             <td>
                 <div class="actions">
+                    <button class="action-link meta-btn" onclick='showProjectMetadata(${JSON.stringify(project).replace(/'/g, "&apos;")})' title="View JSON Metadata">
+                        JSON
+                    </button>
                     <button class="action-link gds-btn" onclick="openGdsViewer('${project.macro}')" title="View GDS">
                         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></button>
                     <a href="https://tinytapeout.com/runs/${selectedShuttle.id}/${project.macro}/" target="_blank" class="action-link" title="Tiny Tapeout Project Page">Proj →</a>
@@ -166,6 +184,20 @@ function renderProjects(projects) {
         `;
         projectBody.appendChild(row);
     });
+}
+
+
+// Show Modal
+function showProjectMetadata(project) {
+    jsonMetadata.textContent = JSON.stringify(project, null, 4);
+    modalOverlay.classList.remove('hidden');
+    document.body.style.overflow = 'hidden'; // Prevent scrolling
+}
+
+// Close Modal
+function closeModal() {
+    modalOverlay.classList.add('hidden');
+    document.body.style.overflow = '';
 }
 
 
@@ -185,7 +217,18 @@ async function openGdsViewer(macro) {
     const brUrl = baseUrl + '.br';
     const pdk = selectedShuttle.pdk || '';
     
-    // Check if Brotli compressed version exists first
+    // Check for GDS first, then .br as fallback
+    try {
+        const res = await fetch(baseUrl, { method: 'HEAD' });
+        if (res.ok) {
+            window.open(`viewer.html?file=${encodeURIComponent(baseUrl)}&pdk=${pdk}`, '_blank');
+            return;
+        }
+    } catch (e) {
+        console.warn('GDS check failed:', e);
+    }
+
+    // Try Brotli fallback
     try {
         const res = await fetch(brUrl, { method: 'HEAD' });
         if (res.ok) {
@@ -216,7 +259,7 @@ function handleSearch(e) {
         });
     }
     
-    renderProjects(filteredProjects);
+    renderProjects(filteredProjects, query);
 }
 
 // Back to Selection

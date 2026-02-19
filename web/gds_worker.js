@@ -34,7 +34,7 @@ function getString(ptr) {
 }
 
 function getWireNames() {
-    const count = instance.exports.wasm_circuit_get_labeled_count();
+    const count = instance.exports.wasm_labeledCount();
     const labeled = [];
     for (let i = 0; i < count; i++) {
         labeled.push({
@@ -101,7 +101,6 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
         instance = wasmInstance;
         
         wasi.initialize(instance);
-        instance.exports.wasm_init();
         if (instance.exports.wasm_arena_init) instance.exports.wasm_arena_init(1); // Enable Arena Mode (1 = Arena, 0 = Heap)
 
         // 4. GDSTK Load phase
@@ -147,10 +146,11 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
 
         const transferables = [];
         if (returnGeometry) {
-            const rectDataPtr = instance.exports.wasm_get_rect_data_ptr();
-            const rectDataSize = instance.exports.wasm_get_rect_data_size();
-            const layerOffsetsPtr = instance.exports.wasm_get_layer_offsets_ptr();
-            const layerOffsetsSize = instance.exports.wasm_get_layer_offsets_size();
+            console.log(instance.exports);
+            const rectDataPtr = instance.exports.wasm_flatRects_ptr();
+            const rectDataSize = instance.exports.wasm_flatRects_size();
+            const layerOffsetsPtr = instance.exports.wasm_flatLayerOffsets_ptr();
+            const layerOffsetsSize = instance.exports.wasm_flatLayerOffsets_size();
 
             if (rectDataPtr && rectDataSize) {
                 // rectDataSize is in bytes, Int32Array expects element count
@@ -192,20 +192,19 @@ onmessage = function(e) {
         if (returnArrays) {
             returnArrays.forEach(arrName => {
                 if (arrName === 'wireData') {
-                    const ptr = instance.exports.wasm_circuit_get_wire_data_ptr();
-                    const count = instance.exports.wasm_circuit_get_wire_count();
+                    const ptr = instance.exports.wasm_wireData_ptr();
+                    const count = instance.exports.wasm_wireData_size();
                     if (ptr) {
                         const data = new Uint8Array(instance.exports.memory.buffer, ptr, count).slice();
                         payload.wireData = data;
                         transferables.push(data.buffer);
                     }
-                }
-                if (arrName === 'fetOn') {
-                    const ptr = instance.exports.wasm_circuit_get_fet_on_ptr();
-                    const count = instance.exports.wasm_circuit_get_fet_count();
+                } else if (arrName === 'vga_buffer') {
+                    const ptr = instance.exports.wasm_vga_buffer_ptr();
+                    const count = instance.exports.wasm_vga_buffer_size();
                     if (ptr) {
                         const data = new Uint8Array(instance.exports.memory.buffer, ptr, count).slice();
-                        payload.fetOn = data;
+                        payload.vga_buffer = data;
                         transferables.push(data.buffer);
                     }
                 }

@@ -1,11 +1,10 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdio>
 #include <vector>
 #include <cstdint>
 #include <algorithm>
-#include <numeric>
-#include <climits>
 
 
 
@@ -30,17 +29,9 @@ struct BVHView {
 
 struct DSU {
     std::vector<int> p;
-    DSU(size_t n = 0) : p(n, -1) {}
+    void reset(size_t n) {p.assign(n, -1);}
     bool is_root(int i) const { return p[i] < 0; }
     int find(int i) {
-        if (i >= p.size()) {
-            int old_n = p.size();
-            p.resize(i+1, -1);
-            return i;
-        }
-        return _find(i);
-    }
-    int _find(int i) {
         int root = i;
         while (!is_root(root)) root = p[root];
         while (i != root) { int next = p[i]; p[i] = root; i = next; }
@@ -64,10 +55,9 @@ struct DSU {
     enum {NeedsID=-1, Skip=-2};
     template<typename ID>
     int assign_ids(std::vector<ID> & ids, ID next_id) {
-        ids.resize(p.size(), NeedsID);
-        for (int i = 0; i < (int)p.size(); ++i) {
+        for (int i = 0; i < (int)ids.size(); ++i) {
             if (ids[i] != NeedsID) continue;
-            int root = _find(i);
+            int root = find(i);
             if (ids[root] == NeedsID) {
                 ids[root] = next_id++;
             }
@@ -266,125 +256,66 @@ void collideSelf(const Nodes& nodes,
 }
 
 
-
-/*
-// Version 1: Simple containment-only optimization
-template<typename Rect>
-int optimizeRects_Simple(std::vector<Rect> & rects) {
-    if (rects.empty()) return 0;
-    std::vector<BVHNode> nodes;
-    std::vector<uint8_t> discarded(rects.size(), 0);
-    buildLayerBVH(rects, 0, (uint32_t)rects.size(), nodes);
-    collideSelf(nodes, rects, [&](int i, int j) {
-        if (discarded[i] || discarded[j]) return;
-        if (contains(rects[j], rects[i])) discarded[i] = true;
-        else if (contains(rects[i], rects[j])) discarded[j] = true;
-    }, overlaps);
-    int totalDiscarded = 0;
-    size_t writeIdx = 0;
-    for (size_t i = 0; i < rects.size(); ++i) {
-        if (!discarded[i]) {
-            if (writeIdx != i) rects[writeIdx] = std::move(rects[i]);
-            writeIdx++;
-        } else {
-            totalDiscarded++;
-        }
-    }
-    rects.resize(writeIdx);
-    return totalDiscarded;
-}
-*/
-
 template<typename RectT>
 int optimizeRects(std::vector<RectT> & rects) {
     if (rects.size() < 2) return 0;
     size_t initialSize = rects.size();
 
-    // The Pool: static original rectangles
-    std::vector<RectT> pool = std::move(rects);
-    rects.clear();
-    
-    std::vector<BVHNode> poolNodes;
-    buildLayerBVH(pool, 0, (uint32_t)pool.size(), poolNodes);
-    std::vector<uint8_t> poolDiscarded(pool.size(), 0);
-    
-    // Results from Passes
-    std::vector<RectT> front; // newly grown rects
-    std::vector<RectT> finalRects;
+    std::vector<BVHNode> nodes;
+    buildLayerBVH(rects, 0, (uint32_t)rects.size(), nodes);
 
-    auto mergeRects = [&](const RectT& a, const RectT& b) {
-        RectT m = a;
-        m.x1 = std::min(a.x1, b.x1);
-        m.y1 = std::min(a.y1, b.y1);
-        m.x2 = std::max(a.x2, b.x2);
-        m.y2 = std::max(a.y2, b.y2);
-        return m;
+    DSU dsu;
+    dsu.reset(rects.size());
+    std::vector<Rect> rootRects(rects.begin(), rects.end());
+
+    auto canMergeX = [](const Rect& a, const Rect& b) {
+        return a.y1 == b.y1 && a.y2 == b.y2 && touches(a, b);
+    };
+    auto canMergeY = [](const Rect& a, const Rect& b) {
+        return a.x1 == b.x1 && a.x2 == b.x2 && touches(a, b);
     };
 
-    auto canMerge = [&](const RectT& a, const RectT& b) {
-        bool sameX = a.x1 == b.x1 && a.x2 == b.x2;
-        bool sameY = a.y1 == b.y1 && a.y2 == b.y2;
-        return (sameX || sameY) && touches(a, b);
+    auto runMergePass = [&](auto canMerge) {
+        collideSelf(nodes, rects, [&](int i, int j) {
+            i = dsu.find(i);
+            j = dsu.find(j);
+            if (i==j) return;
+            const auto & a = rootRects[i];
+            const auto & b = rootRects[j];
+            if (contains(a, b) || contains(b, a) || canMerge(a, b)) {
+                dsu.unite(i, j);
+                rootRects[dsu.find(i)] = getUnion(a, b);
+            }
+        }, touches);
     };
+    runMergePass(canMergeY);
+    runMergePass(canMergeX);
 
-    // Pass 1: Initial pool internal merges
-    collideSelf(poolNodes, pool, [&](int i, int j) {
-        if (poolDiscarded[i] || poolDiscarded[j]) return;
-        
-        if (contains(pool[j], pool[i])) { poolDiscarded[i] = 1; return; }
-        if (contains(pool[i], pool[j])) { poolDiscarded[j] = 1; return; }
-        
-        if (canMerge(pool[i], pool[j])) {
-            front.push_back(mergeRects(pool[i], pool[j]));
-            poolDiscarded[i] = poolDiscarded[j] = 1;
+    size_t writeIdx = 0;
+    for (int i = 0; i < (int)rects.size(); ++i) {
+        if (dsu.is_root(i)) {
+            static_cast<Rect&>(rects[i]) = rootRects[i];
+            if (writeIdx != i) rects[writeIdx] = std::move(rects[i]);
+            writeIdx++;
         }
-    }, touches);
+    }
+    rects.resize(writeIdx);
 
-    // Pass 2+: Iteratively collide "front" with "poolNodes" and "front" with "front"
-    while (!front.empty()) {
-        std::vector<RectT> nextFront;
-        std::vector<uint8_t> frontDiscarded(front.size(), 0);
-        std::vector<BVHNode> frontNodes;
-        buildLayerBVH(front, 0, (uint32_t)front.size(), frontNodes);
-
-        // A. Collide front with static pool
-        collideTrees(frontNodes, front, poolNodes, pool, [&](int fi, int pi) {
-            if (frontDiscarded[fi] || poolDiscarded[pi]) return;
-            
-            if (contains(pool[pi], front[fi])) { frontDiscarded[fi] = 1; return; }
-            if (contains(front[fi], pool[pi])) { poolDiscarded[pi] = 1; return; }
-            
-            if (canMerge(front[fi], pool[pi])) {
-                nextFront.push_back(mergeRects(front[fi], pool[pi]));
-                frontDiscarded[fi] = 1; poolDiscarded[pi] = 1;
+    // Validation (debug only)
+    /*if (rects.size() > 1) {
+        nodes.clear();
+        buildLayerBVH(rects, 0, (uint32_t)rects.size(), nodes);
+        int stillCanMerge = 0;
+        collideSelf(nodes, rects, [&](int i, int j) {
+            if (canMergeX(rects[i], rects[j]) || canMergeY(rects[i], rects[j])) {
+                ++stillCanMerge;
             }
         }, touches);
 
-        // B. Collide front with front
-        collideSelf(frontNodes, front, [&](int i, int j) {
-            if (frontDiscarded[i] || frontDiscarded[j]) return;
-            
-            if (contains(front[j], front[i])) { frontDiscarded[i] = 1; return; }
-            if (contains(front[i], front[j])) { frontDiscarded[j] = 1; return; }
-            
-            if (canMerge(front[i], front[j])) {
-                nextFront.push_back(mergeRects(front[i], front[j]));
-                frontDiscarded[i] = frontDiscarded[j] = 1;
-            }
-        }, touches);
-
-        // Collect front rects that didn't merge in this pass
-        for (size_t i = 0; i < front.size(); ++i) {
-            if (!frontDiscarded[i]) finalRects.push_back(std::move(front[i]));
+        if (stillCanMerge) {
+            printf("Warning: %d rects still not merged\n", stillCanMerge);
         }
-        front = std::move(nextFront);
-    }
-
-    // Collect remaining non-discarded pool rects
-    for (size_t i = 0; i < pool.size(); ++i) {
-        if (!poolDiscarded[i]) finalRects.push_back(std::move(pool[i]));
-    }
+    }*/
     
-    rects = std::move(finalRects);
     return (int)(initialSize - rects.size());
 }

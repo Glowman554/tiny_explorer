@@ -54,36 +54,12 @@ pub fn build(b: *std.Build) void {
     // Miniz Source Files
     exe.addCSourceFiles(.{ 
         .files = &.{ "vendor/miniz/miniz.c" },
-        .flags = &.{ "-std=gnu99" },
     });
 
     exe.linkLibC();
     exe.linkLibCpp();
 
     if (target.result.cpu.arch.isWasm()) {
-        exe.root_module.export_symbol_names = &.{
-            "wasm_malloc",
-            "wasm_free",
-            "wasm_init",
-            "wasm_arena_init",
-            "wasm_arena_get_usage",
-            "wasm_load_file",
-            "wasm_process",
-            "wasm_get_rect_data_ptr",
-            "wasm_get_rect_data_size",
-            "wasm_get_layer_offsets_ptr",
-            "wasm_get_layer_offsets_size",
-            "wasm_circuit_get_wire_count",
-            "wasm_circuit_get_labeled_count",
-            "wasm_circuit_get_labeled_id",
-            "wasm_circuit_get_labeled_name",
-            "wasm_circuit_get_fet_count",
-            "wasm_circuit_set_input",
-            "wasm_circuit_run_wave",
-            "wasm_circuit_get_wire_data_ptr",
-            "wasm_circuit_get_fet_on_ptr",
-            "wasm_circuit_get_short_count",
-        };
         exe.entry = .disabled;
         exe.root_module.strip = true;
         exe.stack_size = 1024 * 1024 * 4; // 4MB stack

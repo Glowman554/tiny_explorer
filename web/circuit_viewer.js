@@ -1,3 +1,5 @@
+import { Animator } from './animator.js';
+
 /**
  * CircuitViewer - A WebGL-based GDS/OASIS geometry and netlist viewer.
  */
@@ -44,6 +46,7 @@ export const FS_SOURCE = `#version 300 es
     
     uniform vec4 u_color;
     uniform float u_globalAlpha;
+    uniform float u_layerAlpha;
     uniform float u_showBoundaries;
     uniform float u_isHighlighting; // 1.0 if any net is highlighted
     uniform float u_stateMix;       // 0.0=layer, 1.0=state
@@ -67,9 +70,21 @@ export const FS_SOURCE = `#version 300 es
             
             // Bit 0 is Logic Value (1=High, 0=Low)
             if ((state & 1u) != 0u) {
-                stateColor = vec3(1.0, 0.65, 0.35); // Orange
+                stateColor = vec3(1.);
+                //stateColor = vec3(1.0, 0.65, 0.35); // Orange
             } else {
-                stateColor = vec3(0.35, 0.65, 1.0); // Blue
+                stateColor = vec3(0.0);
+                //stateColor = vec3(0.35, 0.65, 1.0); // Blue
+            }
+            
+            // Bit 6 is Flipped/Changed flag
+            bool isFlipped = (state & 0x40u) != 0u;
+            if (isFlipped) {
+                stateColor = mix(stateColor, 
+                (state & 1u) != 0u ? vec3(1.0, 1.0, 0.0) : vec3(0.0, 1.0, 1.0), 
+                0.7); // Yellowish flip highlight
+            } else {
+                stateColor *= 0.5;
             }
             
             // Bit 7 is Selection/Highlight
@@ -93,14 +108,16 @@ export const FS_SOURCE = `#version 300 es
         }
         
         if (u_showBoundaries > 0.5) {
-            vec2 b = smoothstep(0.0, 0.02, v_pos) * smoothstep(1.0, 0.98, v_pos);
-            if (b.x * b.y < 0.5) {
-                color = vec4(1.0, 1.0, 1.0, 1.0);
-            }
+            vec2 d = fwidth(v_pos);
+            vec2 f = step(d * 1.5, v_pos) * step(d * 1.5, 1.0 - v_pos);
+            color = mix(vec4(1), color, f.x*f.y);
+            // if (min(f.x, f.y) < 0.5) {
+            //     color = vec4(1.0, 1.0, 1.0, 1.0);
+            // }
         }
         
         fragColor = color;
-        fragColor.a *= u_globalAlpha;
+        fragColor.a *= u_globalAlpha * u_layerAlpha;
     }
 `;
 
@@ -146,7 +163,8 @@ export class CircuitViewer {
             globalAlpha: 0.8,
             showBoundaries: false,
             showPowerNets: true,
-            stateMix: 0.0
+            stateMix: 0.0,
+            explode: 1.0
         };
         
         this.isDragging = false;
@@ -165,18 +183,24 @@ export class CircuitViewer {
         this.netStateTexture = null;
         this.netStatesSize = [0, 0];
         this.netStateData = null;
+        this.lastWireData = null;
 
         // Callbacks for UI sync
         this.onLog = null;
         this.onProgress = null;
         this.onLoaded = null;
         this.onUpdateCircuit = null;
+        this.onVgaFrame = null;
+
+        this.vga = { width: 0, height: 0, buffer: null };
 
         this.init();
     }
 
     init() {
-        this.gl = this.canvas.getContext('webgl2', { alpha: false, antialias: true });
+        this.gl = this.canvas.getContext('webgl2', { alpha: true, antialias: true });
+        this.program = null;
+        this.animator = new Animator();
         if (!this.gl) { alert('WebGL2 not supported'); return; }
         
         const gl = this.gl;
@@ -328,10 +352,23 @@ export class CircuitViewer {
     }
 
     requestFrame() {
-        if (!this._frameRequested) {
-            this._frameRequested = true;
+        if (!this.frameRequested) {
+            this.frameRequested = true;
+            this.lastFrameTime = performance.now();
             requestAnimationFrame(() => {
-                this._frameRequested = false;
+                this.frameRequested = false;
+                
+                const now = performance.now();
+                const dt = (now - (this.lastFrameTime || now)) / 1000.0;
+                this.lastFrameTime = now;
+
+                let isAnimating = false;
+                if (this.animator && this.animator.isPlaying) {
+                    isAnimating = this.animator.tick(dt, this);
+                    if (isAnimating) {
+                        this.requestFrame();
+                    }
+                }
                 this.render();
             });
         }
@@ -380,6 +417,7 @@ export class CircuitViewer {
         const u_layerZ = gl.getUniformLocation(this.program, "u_layerZ");
         const u_thickness = gl.getUniformLocation(this.program, "u_thickness");
         const u_color = gl.getUniformLocation(this.program, "u_color");
+        const u_layerAlpha = gl.getUniformLocation(this.program, "u_layerAlpha");
         const a_rect = gl.getAttribLocation(this.program, "a_rect");
         const a_net = gl.getAttribLocation(this.program, "a_net");
 
@@ -412,9 +450,10 @@ export class CircuitViewer {
             gl.uniform1f(u_isExemptLayer, isExempt ? 1.0 : 0.0);
             
             const spec = this.layerSpecs[lid] || { z: 0, h: 0 };
-            gl.uniform1f(u_layerZ, spec.z);
+            gl.uniform1f(u_layerZ, spec.z * this.view.explode);
             gl.uniform1f(u_thickness, spec.h);
             gl.uniform4fv(u_color, config.color);
+            gl.uniform1f(u_layerAlpha, config.alphaMultiplier !== undefined ? config.alphaMultiplier : 1.0);
 
             gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
             const stride = 5 * 4;
@@ -436,6 +475,11 @@ export class CircuitViewer {
     }
 
     async loadGDS(url, pdk) {
+        this.vgaRunning = false;
+        if (this.vgaInterval) {
+            clearInterval(this.vgaInterval);
+            this.vgaInterval = null;
+        }
         this.onLog?.(`Loading GDS: ${url} (PDK: ${pdk || "default"})\n`);
         this.onProgress?.("Parsing GDS in worker...");
 
@@ -452,9 +496,16 @@ export class CircuitViewer {
             } else if (data.type === "done") {
                 this.processParsedData(data.stats, data.wireNames);
             } else if (data.type === "callResult") {
+                if (data.name === "wasm_vga_width") this.vga.width = data.result;
+                if (data.name === "wasm_vga_height") this.vga.height = data.result;
+
                 if (data.wireData) {
                     this.updateNetStatesFromWireData(data.wireData);
                     this.onUpdateCircuit?.(data.wireData);
+                }
+                if (data.vga_buffer) {
+                    this.vga.buffer = data.vga_buffer;
+                    this.onVgaFrame?.(data.vga_buffer, this.vga.width, this.vga.height);
                 }
             }
         };
@@ -585,15 +636,44 @@ export class CircuitViewer {
         this.worker.postMessage({ type: "call", name, args, returnArrays });
     }
 
+    initVga() {
+        this.callWasm("wasm_vga_init", [], []);
+        this.callWasm("wasm_vga_width", [], []);
+        this.callWasm("wasm_vga_height", [], []);
+    }
+
+    vgaTick(n = 1000) {
+        this.callWasm("wasm_vga_tick", [n], ["vga_buffer", "wireData"]);
+    }
+
     updateNetStatesFromWireData(wireData) {
         if (!this.netStateData) return;
+        
         for (let i = 0; i < wireData.length; i++) {
             if (i < this.netStateData.length) {
-                // Preserve bit 7 (highlight), update bits 0-6 from simulation
+                // Bit 0: Logic Value
+                const val = wireData[i] & 1;
+                
+                // Bit 6: Flipped (compared to last update)
+                let flipped = 0;
+                if (this.lastWireData && i < this.lastWireData.length) {
+                    const lastVal = this.lastWireData[i] & 1;
+                    if (val !== lastVal) flipped = 0x40;
+                }
+
+                // Preserve bit 7 (selection highlight)
                 let highlight = this.netStateData[i] & 0x80;
-                this.netStateData[i] = (wireData[i] & 0x7F) | highlight;
+                this.netStateData[i] = val | flipped | highlight;
             }
         }
+        
+        // Save current state for next comparison
+        if (!this.lastWireData || this.lastWireData.length !== wireData.length) {
+            this.lastWireData = new Uint8Array(wireData);
+        } else {
+            this.lastWireData.set(wireData);
+        }
+
         this.updateNetStateTexture();
         this.requestFrame();
     }

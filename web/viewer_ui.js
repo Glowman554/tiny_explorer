@@ -13,6 +13,8 @@ export function initViewerUI(viewer) {
     const alphaSlider = doc('alphaSlider');
     const boundaryToggle = doc('boundaryToggle');
     const powerNetToggle = doc('powerNetToggle');
+    const netIdList = doc('netIdList');
+    const btnHighlightIds = doc('btnHighlightIds');
 
     viewer.onLog = (msg) => {
         if (!logContainer) return;
@@ -40,6 +42,10 @@ export function initViewerUI(viewer) {
         updateCircuitMonitor(viewer, wireData);
     };
 
+    viewer.onVgaFrame = (buffer, width, height) => {
+        updateVgaMonitor(viewer, buffer, width, height);
+    };
+
     // Toggle logic for all panels
     document.querySelectorAll('.panel-header').forEach(header => {
         header.onclick = () => {
@@ -56,6 +62,16 @@ export function initViewerUI(viewer) {
         viewer.view.showBoundaries = boundaryToggle.checked;
         viewer.requestFrame();
     };
+    const perspSlider = doc('perspSlider');
+    if (perspSlider) perspSlider.oninput = () => {
+        viewer.view.perspective = parseFloat(perspSlider.value);
+        viewer.requestFrame();
+    };
+    const explodeSlider = doc('explodeSlider');
+    if (explodeSlider) explodeSlider.oninput = () => {
+        viewer.view.explode = parseFloat(explodeSlider.value);
+        viewer.requestFrame();
+    };
     if (powerNetToggle) powerNetToggle.onchange = () => {
         viewer.view.showPowerNets = powerNetToggle.checked;
         viewer.requestFrame();
@@ -65,6 +81,45 @@ export function initViewerUI(viewer) {
         viewer.view.stateMix = parseFloat(stateMixSlider.value);
         viewer.requestFrame();
     };
+
+    // VGA Controls
+    if (doc('btnVgaInit')) doc('btnVgaInit').onclick = () => {
+        viewer.initVga();
+        doc('vgaPlaceholder').innerText = "VGA Initializing...";
+    };
+
+    if (doc('btnVgaStep')) doc('btnVgaStep').onclick = () => {
+        viewer.vgaTick(100);
+    };
+
+    viewer.vgaRunning = false;
+    
+    // Hook into VGA frame arrival to trigger next tick if running
+    const originalOnVgaFrame = viewer.onVgaFrame;
+    viewer.onVgaFrame = (buffer, width, height) => {
+        if (originalOnVgaFrame) originalOnVgaFrame(buffer, width, height);
+        if (viewer.vgaRunning) {
+            // Use requestAnimationFrame or a short timeout to avoid pegging the CPU too hard
+            // and allowing UI events to process
+            setTimeout(() => {
+                if (viewer.vgaRunning) viewer.vgaTick(100);
+            }, 0);
+        }
+    };
+
+    if (doc('btnVgaRun')) {
+        doc('btnVgaRun').onclick = () => {
+            if (viewer.vgaRunning) {
+                viewer.vgaRunning = false;
+                doc('btnVgaRun').innerText = "Run Continuous";
+            } else {
+                viewer.vgaRunning = true;
+                doc('btnVgaRun').innerText = "Stop VGA";
+                viewer.vgaTick(100); // Trigger first tick
+            }
+        };
+    }
+
     if (doc('btnReset')) doc('btnReset').onclick = () => viewer.resetView();
     if (doc('btnToggleAll')) doc('btnToggleAll').onclick = () => {
         const anyVisible = Object.values(viewer.layers).some(l => l.visible);
@@ -90,9 +145,60 @@ export function initViewerUI(viewer) {
         netSelect.onchange = netSelect.oninput = netSelect.onkeyup = netSelect.onclick = () => syncNetSelection(viewer);
     }
 
+    if (btnHighlightIds) {
+        btnHighlightIds.onclick = () => {
+            if (!netIdList) return;
+            const ids = parseIdList(netIdList.value);
+            viewer.syncSelectedNets(ids);
+            updateNetListUI(viewer);
+        };
+    }
+
+    if (netIdList) {
+        netIdList.onkeydown = (e) => {
+            if (e.key === 'Enter') {
+                btnHighlightIds.click();
+            }
+        };
+    }
+
+    // Animator Integrations
+    const btnCaptWp = doc('btnCaptWp');
+    const btnClearWp = doc('btnClearWp');
+    const btnPlayAnim = doc('btnPlayAnim');
+    const animTime = doc('animTime');
+    const wpList = doc('wpList');
+
+    if (btnCaptWp && viewer.animator) {
+        btnCaptWp.onclick = () => {
+            if (animTime) {
+                viewer.animator.defaultTransitionTime = parseFloat(animTime.value);
+            }
+            viewer.animator.addWaypoint(viewer);
+            updateWaypointListUI(viewer.animator, wpList);
+        };
+    }
+
+    if (btnClearWp && viewer.animator) {
+        btnClearWp.onclick = () => {
+            viewer.animator.clearWaypoints();
+            updateWaypointListUI(viewer.animator, wpList);
+        };
+    }
+
+    if (btnPlayAnim && viewer.animator) {
+        btnPlayAnim.onclick = () => {
+            if (viewer.animator.waypoints.length > 1) {
+                viewer.animator.play();
+                viewer.requestFrame();
+            }
+        };
+    }
+
     if (doc('btnClearNet')) doc('btnClearNet').onclick = () => {
         if (netSelect) netSelect.selectedIndex = -1;
         if (netSearch) netSearch.value = '';
+        if (netIdList) netIdList.value = '';
         viewer.syncSelectedNets([]);
         updateNetListUI(viewer);
     };
@@ -111,6 +217,19 @@ export function initViewerUI(viewer) {
         if (e.key === 'Escape') {
             viewer.setSoloLayer(null);
             rebuildLayerUI(viewer);
+        }
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+
+        if (e.key.toLowerCase() === 'c') {
+            const clkWire = viewer.wireNames.find(w => /^clk$/i.test(w.name));
+            if (clkWire) {
+                const state = (viewer.netStateData) ? (viewer.netStateData[clkWire.id] & 1) : 0;
+                viewer.toggleWire(clkWire.id, state);
+            }
+        }
+        if (e.key === ' ') {
+            e.preventDefault();
+            viewer.stepCircuit();
         }
     });
 }
@@ -240,9 +359,8 @@ export function updateCircuitMonitor(viewer, wireData) {
         return;
     }
 
-    const getState = (id) => {
-        const d = (wireData) ? wireData[id] : (viewer.netStateData ? viewer.netStateData[id] : 0);
-        return d & 1; // Simulation value is bit 0
+    const getFullState = (id) => {
+        return (wireData) ? wireData[id] : (viewer.netStateData ? viewer.netStateData[id] : 0);
     };
 
     // TT-style signals
@@ -293,9 +411,11 @@ export function updateCircuitMonitor(viewer, wireData) {
         btn.className = 'monitor-special-btn';
         btn.innerText = spec.name;
         if (wire) {
-            const state = getState(wire.id);
+            const raw = getFullState(wire.id);
+            const state = raw & 1;
             if (state === 1) btn.classList.add('state-high');
             else btn.classList.add('state-low');
+            if (raw & 0x40) btn.classList.add('state-flipped');
             btn.onclick = () => viewer.toggleWire(wire.id, state);
         } else {
             btn.style.opacity = '0.2';
@@ -320,9 +440,11 @@ export function updateCircuitMonitor(viewer, wireData) {
             btn.className = 'monitor-btn';
             btn.innerText = i;
             if (wire) {
-                const state = getState(wire.id);
+                const raw = getFullState(wire.id);
+                const state = raw & 1;
                 if (state === 1) btn.classList.add('state-high');
                 else btn.classList.add('state-low');
+                if (raw & 0x40) btn.classList.add('state-flipped');
                 btn.onclick = () => viewer.toggleWire(wire.id, state);
             } else {
                 btn.style.opacity = '0.15';
@@ -333,4 +455,69 @@ export function updateCircuitMonitor(viewer, wireData) {
         });
         monitor.appendChild(grid);
     });
+}
+
+export function updateVgaMonitor(viewer, buffer, width, height) {
+    const canvas = document.getElementById('vgaCanvas');
+    const placeholder = document.getElementById('vgaPlaceholder');
+    if (!canvas || !placeholder) return;
+
+    if (!buffer) return;
+
+    if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        canvas.style.display = 'block';
+        placeholder.style.display = 'none';
+    }
+
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(width, height);
+    const data = imageData.data;
+
+    // PPM (RGB) to Canvas (RGBA)
+    for (let i = 0, j = 0; i < data.length; i += 4, j += 3) {
+        data[i] = buffer[j];
+        data[i+1] = buffer[j+1];
+        data[i+2] = buffer[j+2];
+        data[i+3] = 255;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+}
+
+function parseIdList(str) {
+    const ids = new Set();
+    const parts = str.split(/[,\s]+/);
+    for (const part of parts) {
+        if (!part.trim()) continue;
+        if (part.includes('-')) {
+            const [startStr, endStr] = part.split('-');
+            const start = parseInt(startStr.trim());
+            const end = parseInt(endStr.trim());
+            if (!isNaN(start) && !isNaN(end)) {
+                for (let i = Math.min(start, end); i <= Math.max(start, end); i++) {
+                    ids.add(i);
+                }
+            }
+        } else {
+            const id = parseInt(part.trim());
+            if (!isNaN(id)) {
+                ids.add(id);
+            }
+        }
+    }
+    return Array.from(ids);
+}
+
+function updateWaypointListUI(animator, container) {
+    if (!container) return;
+    if (animator.waypoints.length === 0) {
+        container.innerText = "0 Waypoints";
+        return;
+    }
+    
+    let html = `<b>${animator.waypoints.length} Waypoints</b><br>`;
+    html += `Total Time: ${animator.totalDuration.toFixed(1)}s<br>`;
+    container.innerHTML = html;
 }
