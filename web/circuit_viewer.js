@@ -16,7 +16,7 @@ export const VS_SOURCE = `#version 300 es
     uniform float u_isExemptLayer;
     
     flat out int v_net;
-    out vec2 v_pos;
+    out vec3 v_pos;
     out float v_light;
 
     void main() {
@@ -29,14 +29,14 @@ export const VS_SOURCE = `#version 300 es
         }
 
         vec2 rectPos = mix(vec2(a_rect.xy), vec2(a_rect.zw), a_pos.xy);
+        // z-fighting mitigation
         float z = u_layerZ + a_pos.z * u_thickness;
+        z += float(gl_InstanceID % 64) * 0.1;
         vec4 p = vec4(rectPos, z, 1.0);
         gl_Position = u_viewMat * p;
-        // z-fighting mitigation
-        gl_Position.z += float(gl_InstanceID % 64) * 1e-6;
         
         v_net = a_net;
-        v_pos = a_pos.xy;
+        v_pos = a_pos;
         v_light = 0.7 + 0.3 * a_pos.z; // Simple top lighting
     }
 `;
@@ -54,7 +54,7 @@ export const FS_SOURCE = `#version 300 es
     uniform ivec2 u_netStatesSize;
     
     flat in int v_net;
-    in vec2 v_pos;
+    in vec3 v_pos;
     in float v_light;
     
     out vec4 fragColor;
@@ -108,12 +108,9 @@ export const FS_SOURCE = `#version 300 es
         }
         
         if (u_showBoundaries > 0.5) {
-            vec2 d = fwidth(v_pos);
-            vec2 f = step(d * 1.5, v_pos) * step(d * 1.5, 1.0 - v_pos);
-            color = mix(vec4(1), color, f.x*f.y);
-            // if (min(f.x, f.y) < 0.5) {
-            //     color = vec4(1.0, 1.0, 1.0, 1.0);
-            // }
+            vec3 d = min(fwidth(v_pos), 0.1);
+            vec3 f = step(d, min(v_pos, 1.0-v_pos));
+            color = mix(vec4(1), color, f.x*f.y*f.z);
         }
         
         fragColor = color;
@@ -131,7 +128,7 @@ export const LAYER_CONFIG = [
     { name: "N_TERM",  color: [0.2, 0.6, 0.2, 1.0], z: _z,    h: _h },
     { name: "P_TERM",  color: [0.8, 0.8, 0.2, 1.0], z: _z,    h: _h },
     { name: "POLY",    color: [0.8, 0.2, 0.2, 1.0], z: _z+=_h, h: _h },
-    { name: "LICON",   color: [0.5, 0.5, 0.5, 1.0], z: _z,    h: _h=600 },
+    { name: "LICON",   color: [0.5, 0.5, 0.5, 1.0], z: _z+5,   h: _h=600 },
     { name: "LI1",     color: [0.3, 0.3, 0.9, 1.0], z: _z+=_h, h: _h=h_met },
     { name: "MCON",    color: [0.6, 0.6, 0.6, 1.0], z: _z+=_h, h: _h=h_via },
     { name: "MET1",    color: [0.7, 0.4, 0.8, 1.0], z: _z+=_h, h: _h=h_met },
@@ -143,7 +140,10 @@ export const LAYER_CONFIG = [
     { name: "MET4",    color: [0.2, 0.6, 0.2, 1.0], z: _z+=_h, h: _h=h_met },
     { name: "VIA4",    color: [0.9, 0.9, 0.9, 1.0], z: _z+=_h, h: _h=h_via },
     { name: "MET5",    color: [0.6, 0.2, 0.6, 1.0], z: _z+=_h, h: _h=h_met },
-];
+].map(l => ({
+    ...l, 
+    isExempt: l.name.toUpperCase().endsWith("TERM") || l.name.toUpperCase() === "LICON"
+}));
 
 export class CircuitViewer {
     constructor(canvasId) {
@@ -164,7 +164,8 @@ export class CircuitViewer {
             showBoundaries: false,
             showPowerNets: true,
             stateMix: 0.0,
-            explode: 1.0
+            explode: 1.0,
+            renderMode: 'cube'
         };
         
         this.isDragging = false;
@@ -211,14 +212,36 @@ export class CircuitViewer {
         this.program = this.createProgram(vs, fs);
         gl.useProgram(this.program);
 
+        // Cache uniform locations
+        this.unis = {
+            viewMat: gl.getUniformLocation(this.program, "u_viewMat"),
+            isHighlighting: gl.getUniformLocation(this.program, "u_isHighlighting"),
+            globalAlpha: gl.getUniformLocation(this.program, "u_globalAlpha"),
+            stateMix: gl.getUniformLocation(this.program, "u_stateMix"),
+            netStatesSize: gl.getUniformLocation(this.program, "u_netStatesSize"),
+            netStates: gl.getUniformLocation(this.program, "u_netStates"),
+            showBoundaries: gl.getUniformLocation(this.program, "u_showBoundaries"),
+            showPowerNets: gl.getUniformLocation(this.program, "u_showPowerNets"),
+            isExemptLayer: gl.getUniformLocation(this.program, "u_isExemptLayer"),
+            layerZ: gl.getUniformLocation(this.program, "u_layerZ"),
+            thickness: gl.getUniformLocation(this.program, "u_thickness"),
+            color: gl.getUniformLocation(this.program, "u_color"),
+            layerAlpha: gl.getUniformLocation(this.program, "u_layerAlpha")
+        };
+        this.attribs = {
+            pos: gl.getAttribLocation(this.program, "a_pos"),
+            rect: gl.getAttribLocation(this.program, "a_rect"),
+            net: gl.getAttribLocation(this.program, "a_net")
+        };
+
         // Cube Geometry (Shared, Indexed)
         const cubeVerts = new Float32Array([
             0,0,0, 1,0,0, 1,1,0, 0,1,0,
             0,0,1, 1,0,1, 1,1,1, 0,1,1
         ]);
         const cubeIndices = new Uint16Array([
+            4, 5, 6, 4, 6, 7, // Top (First 6 indices = Quad)
             0, 2, 1, 0, 3, 2, // Bottom
-            4, 5, 6, 4, 6, 7, // Top
             0, 1, 5, 0, 5, 4, // Front
             2, 3, 7, 2, 7, 6, // Back
             1, 2, 6, 1, 6, 5, // Right
@@ -229,11 +252,11 @@ export class CircuitViewer {
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
         gl.bufferData(gl.ARRAY_BUFFER, cubeVerts, gl.STATIC_DRAW);
         
-        const ebo = gl.createBuffer();
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
+        this.ebo = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ebo);
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, cubeIndices, gl.STATIC_DRAW);
         
-        const a_pos = gl.getAttribLocation(this.program, "a_pos");
+        const a_pos = this.attribs.pos;
         gl.enableVertexAttribArray(a_pos);
         gl.vertexAttribPointer(a_pos, 3, gl.FLOAT, false, 0, 0);
 
@@ -394,32 +417,24 @@ export class CircuitViewer {
         const m20 = st*s*sp, m21 = st*s*cp, m22 = ct*s,  m23 = st*s*(-cx*sp - cy*cp);
 
         const viewMat = new Float32Array([
-            m00/asp, m10, -0.05*m20, -pers*m20,
-            m01/asp, m11, -0.05*m21, -pers*m21,
-            m02/asp, m12, -0.05*m22, -pers*m22,
-            m03/asp, m13, -0.05*m23, -pers*m23 + 1
+            m00/asp, m10, -0.01*m20, -pers*m20,
+            m01/asp, m11, -0.01*m21, -pers*m21,
+            m02/asp, m12, -0.01*m22, -pers*m22,
+            m03/asp, m13, -0.01*m23, -pers*m23 + 1
         ]);
 
-        gl.uniformMatrix4fv(gl.getUniformLocation(this.program, "u_viewMat"), false, viewMat);
-        gl.uniform1f(gl.getUniformLocation(this.program, "u_isHighlighting"), (this.highlightedCount > 0) ? 1.0 : 0.0);
-        gl.uniform1f(gl.getUniformLocation(this.program, "u_globalAlpha"), this.view.globalAlpha);
-        gl.uniform1f(gl.getUniformLocation(this.program, "u_stateMix"), this.view.stateMix);
-        gl.uniform2iv(gl.getUniformLocation(this.program, "u_netStatesSize"), this.netStatesSize);
+        gl.uniformMatrix4fv(this.unis.viewMat, false, viewMat);
+        gl.uniform1f(this.unis.isHighlighting, (this.highlightedCount > 0) ? 1.0 : 0.0);
+        gl.uniform1f(this.unis.globalAlpha, this.view.globalAlpha);
+        gl.uniform1f(this.unis.stateMix, this.view.stateMix);
+        gl.uniform2iv(this.unis.netStatesSize, this.netStatesSize);
         
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, this.netStateTexture);
-        gl.uniform1i(gl.getUniformLocation(this.program, "u_netStates"), 0);
+        gl.uniform1i(this.unis.netStates, 0);
 
-        gl.uniform1f(gl.getUniformLocation(this.program, "u_showBoundaries"), this.view.showBoundaries ? 1.0 : 0.0);
-        gl.uniform1f(gl.getUniformLocation(this.program, "u_showPowerNets"), this.view.showPowerNets ? 1.0 : 0.0);
-
-        const u_isExemptLayer = gl.getUniformLocation(this.program, "u_isExemptLayer");
-        const u_layerZ = gl.getUniformLocation(this.program, "u_layerZ");
-        const u_thickness = gl.getUniformLocation(this.program, "u_thickness");
-        const u_color = gl.getUniformLocation(this.program, "u_color");
-        const u_layerAlpha = gl.getUniformLocation(this.program, "u_layerAlpha");
-        const a_rect = gl.getAttribLocation(this.program, "a_rect");
-        const a_net = gl.getAttribLocation(this.program, "a_net");
+        gl.uniform1f(this.unis.showBoundaries, this.view.showBoundaries ? 1.0 : 0.0);
+        gl.uniform1f(this.unis.showPowerNets, this.view.showPowerNets ? 1.0 : 0.0);
 
         gl.enable(gl.DEPTH_TEST);
         gl.enable(gl.BLEND);
@@ -431,6 +446,12 @@ export class CircuitViewer {
             const zB = this.layerSpecs[b]?.z || 0;
             return reverseOrder ? (zB - zA) : (zA - zB);
         });
+
+        const isCube = this.view.renderMode === 'cube';
+        const indexCount = isCube ? 36 : 6;
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ebo);
+
+        const { rect: a_rect, net: a_net } = this.attribs;
 
         for (const lid of sortedLidsForRender) {
             const layer = this.layers[lid];
@@ -445,15 +466,14 @@ export class CircuitViewer {
                 continue;
             }
 
-            const config = LAYER_CONFIG[lid] || { name: "", color: [0.5, 0.5, 0.5, 1.0] };
-            const isExempt = config.name.toUpperCase().endsWith("TERM") || config.name.toUpperCase() === "LICON";
-            gl.uniform1f(u_isExemptLayer, isExempt ? 1.0 : 0.0);
+            const config = LAYER_CONFIG[lid] || { name: "", color: [0.5, 0.5, 0.5, 1.0], isExempt: false };
+            gl.uniform1f(this.unis.isExemptLayer, config.isExempt ? 1.0 : 0.0);
             
             const spec = this.layerSpecs[lid] || { z: 0, h: 0 };
-            gl.uniform1f(u_layerZ, spec.z * this.view.explode);
-            gl.uniform1f(u_thickness, spec.h);
-            gl.uniform4fv(u_color, config.color);
-            gl.uniform1f(u_layerAlpha, config.alphaMultiplier !== undefined ? config.alphaMultiplier : 1.0);
+            gl.uniform1f(this.unis.layerZ, spec.z * this.view.explode);
+            gl.uniform1f(this.unis.thickness, spec.h);
+            gl.uniform4fv(this.unis.color, config.color);
+            gl.uniform1f(this.unis.layerAlpha, config.alphaMultiplier !== undefined ? config.alphaMultiplier : 1.0);
 
             gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
             const stride = 5 * 4;
@@ -466,7 +486,7 @@ export class CircuitViewer {
             gl.vertexAttribIPointer(a_net, 1, gl.INT, stride, 4 * 4);
             gl.vertexAttribDivisor(a_net, 1);
 
-            gl.drawElementsInstanced(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0, layer.count);
+            gl.drawElementsInstanced(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0, layer.count);
         }
     }
 
@@ -619,6 +639,12 @@ export class CircuitViewer {
 
     setSoloLayer(lid) {
         this.soloLayerId = lid;
+        this.requestFrame();
+    }
+
+    setRenderMode(mode) {
+        if (mode !== 'quad' && mode !== 'cube') return;
+        this.view.renderMode = mode;
         this.requestFrame();
     }
 

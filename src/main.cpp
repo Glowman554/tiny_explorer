@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <vector>
@@ -11,8 +10,6 @@
 #include <sys/stat.h>
 
 #include <gdstk/gdstk.hpp>
-#include <fstream>
-#include <set>
 
 #include "extractor.h"
 #include "fetsim.h"
@@ -191,6 +188,26 @@ Module* g_mod() {
 
 #define WASM_ARRAY(NAME) WASM_ARRAY_(NAME, NAME)
 
+#define WASM_INDEXED_ARRAY_(NAME, COLLECTION, ATTR) \
+    WASM_EXPORT("wasm_" #NAME "_ptr") \
+    extern "C" void* wasm_##NAME##_ptr(int idx) { \
+        if (idx < 0 || idx >= (int)g_mod()->COLLECTION.size()) return nullptr; \
+        return (void*)g_mod()->COLLECTION[idx].ATTR.data(); \
+    } \
+    WASM_EXPORT("wasm_" #NAME "_size") \
+    extern "C" uint32_t wasm_##NAME##_size(int idx) { \
+        if (idx < 0 || idx >= (int)g_mod()->COLLECTION.size()) return 0; \
+        auto & arr = g_mod()->COLLECTION[idx].ATTR; \
+        return (uint32_t)(arr.size() * sizeof(arr[0])); \
+    }
+
+#define WASM_INDEXED_STR_(NAME, COLLECTION, ATTR) \
+    WASM_EXPORT("wasm_" #NAME) \
+    extern "C" const char* wasm_##NAME(int idx) { \
+        if (idx < 0 || idx >= (int)g_mod()->COLLECTION.size()) return nullptr; \
+        return g_mod()->COLLECTION[idx].ATTR.c_str(); \
+    }
+
 #define WASM_INT_(NAME, ATTR) \
     WASM_EXPORT("wasm_" #NAME) \
     extern "C" int wasm_##NAME() { \
@@ -198,20 +215,32 @@ Module* g_mod() {
     }
 
 extern "C" {
+    WASM_EXPORT("wasm_init")
+    void wasm_init() {
+        setvbuf(stdout, NULL, _IONBF, 0);
+        setvbuf(stderr, NULL, _IONBF, 0);
+    }
+
     WASM_EXPORT("wasm_load_file")
     bool wasm_load_file(const char* path, const char* pdk) {
+        wasm_init();
         g_mod()->extractor.pdk = pdk;
-        return g_mod()->extractor.load(path);
+        bool res = g_mod()->extractor.load(path);
+        fflush(stdout);
+        return res;
     }
 
     WASM_EXPORT("wasm_process")
     bool wasm_process() {
-        return g_mod()->extractor.process();
+        bool res = g_mod()->extractor.process();
+        fflush(stdout);
+        return res;
     }
 
     WASM_ARRAY_(flatRects, extractor.flatRects);
     WASM_ARRAY_(flatLayerOffsets, extractor.flatLayerOffsets);
     WASM_ARRAY_(wireData, circuit.wire_data);
+    WASM_ARRAY_(fets, extractor.builder.fets);
     WASM_INT_(labeledCount, extractor.labeledWires.size());
     WASM_INT_(shortCount, circuit.short_count);
 
@@ -245,6 +274,11 @@ extern "C" {
         return g_mod()->circuit.run_wave();
     }
 
+    WASM_EXPORT("wasm_circuit_get_layer_name")
+    const char* wasm_circuit_get_layer_name(uint32_t idx) {
+        return getLayerName((LayerID)idx);
+    }
+
     WASM_EXPORT("wasm_vga_init")
     void wasm_vga_init() {
         if (g_mod()->vga) delete g_mod()->vga;
@@ -262,6 +296,33 @@ extern "C" {
     WASM_ARRAY_(vga_buffer, vga->vga_buffer);
     WASM_INT_(vga_width, vga->width);
     WASM_INT_(vga_height, vga->height);
+
+    WASM_INT_(cell_count, extractor.cells.size());
+    WASM_INDEXED_STR_(cell_name, extractor.cells, name);
+    WASM_INDEXED_ARRAY_(cell_rects, extractor.cells, rects);
+    WASM_INDEXED_ARRAY_(cell_rect2wire, extractor.cells, rect2wire);
+
+    WASM_EXPORT("wasm_cell_bvh_ptr")
+    void* wasm_cell_bvh_ptr(int cell_idx, int layer_idx) {
+        if (cell_idx < 0 || cell_idx >= (int)g_mod()->extractor.cells.size()) return nullptr;
+        if (layer_idx < 0 || layer_idx >= L_COUNT) return nullptr;
+        return g_mod()->extractor.cells[cell_idx].layers[layer_idx].bvh.data();
+    }
+
+    WASM_EXPORT("wasm_cell_bvh_size")
+    uint32_t wasm_cell_bvh_size(int cell_idx, int layer_idx) {
+        if (cell_idx < 0 || cell_idx >= (int)g_mod()->extractor.cells.size()) return 0;
+        if (layer_idx < 0 || layer_idx >= L_COUNT) return 0;
+        return (uint32_t)g_mod()->extractor.cells[cell_idx].layers[layer_idx].bvh.size() * sizeof(BVHNode);
+    }
+
+    WASM_INDEXED_ARRAY_(layer_bvh, extractor.instLayers, bvh);
+    WASM_INDEXED_ARRAY_(layer_instances, extractor.instLayers, instances);
+
+    WASM_EXPORT("wasm_strlen")
+    uint32_t wasm_strlen(const char* s) {
+        return s ? (uint32_t)strlen(s) : 0;
+    }
 }
 
 #ifdef WASM
@@ -310,119 +371,7 @@ int main() {
     }
     return 0;
 
-    // const InstID inst_id = 4426;
-    // printf("\n--- All Wires for Inst %d ---\n", inst_id);
-    // std::vector<int> wires;
-    // if (4426 < (int)proc.instances.size()) {
-    //     const auto& inst = proc.instances[inst_id];
-    //     const auto& cell = proc.cells[inst.cell_id];
-    //     int offset = proc.instOffsets[inst_id];
-    //     std::set<int> printed;
-    //     for (int local = 0; local < (int)cell.wireCount; ++local) {
-    //         int globalWire = proc.segment2flat[offset + local];
-    //         wires.push_back(globalWire);
-    //         if (globalWire >= 2 && printed.insert(globalWire).second) {
-    //             proc.printWire(globalWire);
-    //         }
-    //     }
-    // }
-    // printf("\n--------------------------------\n");
-    // // print ws as comma separated list
-    // std::sort(wires.begin(), wires.end());
-    // wires.erase(std::unique(wires.begin(), wires.end()), wires.end());
-    // for (size_t i = 0; i < wires.size(); ++i) {
-    //     printf("%d%s", wires[i], (i == wires.size() - 1) ? "" : ", ");
-    // }
-    // printf("\n");
 
-    // generate graphviz dot file with component, conneted to wire
-    {
-        int target = 42256;
-        std::set<int> cluster_wires;
-        std::vector<int> q = {target};
-        cluster_wires.insert(target);
-        
-        // Find full channel neighborhood (S/D connected)
-        for (size_t head = 0; head < q.size(); ++head) {
-            int w = q[head];
-            for (const auto& fet : proc.builder.fets) {
-                int peer = -1;
-                if (fet.term[0] == (uint32_t)w) peer = fet.term[1];
-                else if (fet.term[1] == (uint32_t)w) peer = fet.term[0];
-                
-                if (peer != -1 && peer >= 2 && cluster_wires.find(peer) == cluster_wires.end()) {
-                    cluster_wires.insert(peer);
-                    q.push_back(peer);
-                }
-            }
-        }
-
-        std::set<int> viz_wires = cluster_wires;
-        std::set<size_t> viz_fets;
-
-        // Include any FET that has a terminal or gate in the cluster
-        for (size_t i = 0; i < proc.builder.fets.size(); ++i) {
-            const auto& fet = proc.builder.fets[i];
-            bool t0_in = cluster_wires.count(fet.term[0]);
-            bool t1_in = cluster_wires.count(fet.term[1]);
-            bool g_in = cluster_wires.count(fet.gate);
-
-            if (t0_in || t1_in || g_in) {
-                viz_fets.insert(i);
-                viz_wires.insert(fet.gate);
-                viz_wires.insert(fet.term[0]);
-                viz_wires.insert(fet.term[1]);
-                printf("FET: inst %zu, g %d t %d %d\n", i, 
-                    fet.gate, fet.term[0], fet.term[1]);
-            }
-        }
-
-        std::ofstream f("dump.dot");
-        f << "digraph G {\n  rankdir=LR;\n  node [fontname=\"sans-serif\", fontsize=10];\n";
-        
-        std::map<int, std::string> net2name;
-        for (auto const& lw : proc.labeledWires) net2name[lw.first] = lw.second;
-
-        for (int w : viz_wires) {
-            std::string label;
-            if (w == 0) label = "VSS";
-            else if (w == 1) label = "VDD";
-            else label = net2name.count(w) ? net2name[w] : "w" + std::to_string(w);
-            
-            std::string color = "black";
-            int penwidth = 1;
-            if (w == target) {
-                color = "blue";
-                penwidth = 3;
-            } else if (cluster_wires.count(w)) {
-                color = "darkgreen";
-                penwidth = 2;
-            }
-
-            f << "  w" << w << " [label=\"" << label << "\", color=\"" << color << "\", penwidth=" << penwidth << (w < 2 ? ", shape=plaintext" : "") << "];\n";
-        }
-
-        for (size_t i : viz_fets) {
-            const auto& fet = proc.builder.fets[i];
-            bool is_n = (fet.type == FET::N);
-            uint8_t g_val = (fet.gate < proc.circuit.wire_data.size()) ? (proc.circuit.wire_data[fet.gate] & 1) : 0;
-            bool is_open = is_n ? (g_val == 1) : (g_val == 0);
-
-            std::string type_str = is_n ? "N" : "P";
-            std::string color = is_n ? "green" : "red";
-            
-            f << "  f" << i << " [shape=box, label=\"" << type_str << "(" << fet.instance << ")" << "\", color=\"" << color 
-              << "\", width=0.2, height=0.2" << (is_open ? ", penwidth=3" : "") << "];\n";
-            
-            std::string chan_style = is_open ? " [arrowhead=none, penwidth=3]" : " [arrowhead=none]";
-            f << "  f" << i << " -> w" << fet.term[0] << chan_style << ";\n";
-            f << "  f" << i << " -> w" << fet.term[1] << chan_style << ";\n";
-            if (fet.gate >= 0) f << "  w" << fet.gate << " -> f" << i << " [style=dashed];\n";
-        }
-        f << "}\n";
-        printf("Expanded neighborhood of wire %d dumped to dump.dot (%zu wires, %zu FETs)\n", 
-               target, viz_wires.size(), viz_fets.size());
-    }
     return 0;
 }
 

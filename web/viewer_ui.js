@@ -81,6 +81,10 @@ export function initViewerUI(viewer) {
         viewer.view.stateMix = parseFloat(stateMixSlider.value);
         viewer.requestFrame();
     };
+    const renderModeSelect = doc('renderModeSelect');
+    if (renderModeSelect) renderModeSelect.onchange = () => {
+        viewer.setRenderMode(renderModeSelect.value);
+    };
 
     // VGA Controls
     if (doc('btnVgaInit')) doc('btnVgaInit').onclick = () => {
@@ -363,34 +367,29 @@ export function updateCircuitMonitor(viewer, wireData) {
         return (wireData) ? wireData[id] : (viewer.netStateData ? viewer.netStateData[id] : 0);
     };
 
-    // TT-style signals
-    const specialSpecs = [
-        { name: 'VDD', id: 0 },
-        { name: 'VSS', id: 1 },
-        { name: 'CLK', pattern: /^clk$/i },
-        { name: 'ENA', pattern: /^ena$/i },
-        { name: 'RST', pattern: /^rst_n$/i },
-    ];
-    
-    const groups = [
-        { label: 'ui_in (Inputs)', pattern: /^ui_in\[(\d+)\]$/ },
-        { label: 'uo_out (Outputs)', pattern: /^uo_out\[(\d+)\]$/ },
-        { label: 'uio_in (Bidi In)', pattern: /^uio_in\[(\d+)\]$/ },
-        { label: 'uio_out (Bidi Out)', pattern: /^uio_out\[(\d+)\]$/ }
-    ];
+    // Filter and group signals
+    const groupPattern = /^(.+)\[(\d+)\]$/;
+    const groupsMap = new Map();
+    const singleBits = [];
 
-    const findWire = (pattern) => viewer.wireNames.find(w => pattern.test(w.name));
-    const findGroupWires = (pattern) => {
-        const res = new Array(8).fill(null);
-        viewer.wireNames.forEach(w => {
-            const m = w.name.match(pattern);
-            if (m) {
-                const idx = parseInt(m[1]);
-                if (idx < 8) res[idx] = w;
-            }
-        });
-        return res;
-    };
+    viewer.wireNames.forEach(w => {
+        const nameUpper = w.name.toUpperCase();
+        if (nameUpper === 'VDD' || nameUpper === 'VSS') return;
+        if (w.id === 0 || w.id === 1) return;
+
+        const m = w.name.match(groupPattern);
+        if (m) {
+            const groupName = m[1];
+            const idx = parseInt(m[2]);
+            if (!groupsMap.has(groupName)) groupsMap.set(groupName, []);
+            groupsMap.get(groupName)[idx] = w;
+        } else {
+            singleBits.push(w);
+        }
+    });
+
+    // Sort single bits by name
+    singleBits.sort((a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true}));
 
     monitor.innerHTML = '';
     
@@ -402,40 +401,55 @@ export function updateCircuitMonitor(viewer, wireData) {
     const btnStep = document.getElementById('btnStepWave');
     if (btnStep) btnStep.onclick = () => viewer.stepCircuit();
 
-    // Special Row
-    const specialRow = document.createElement('div');
-    specialRow.className = 'monitor-special-row';
-    specialSpecs.forEach(spec => {
-        const wire = (spec.id !== undefined) ? { id: spec.id } : findWire(spec.pattern);
-        const btn = document.createElement('div');
-        btn.className = 'monitor-special-btn';
-        btn.innerText = spec.name;
-        if (wire) {
+    // Single Bits Row
+    if (singleBits.length > 0) {
+        const specialRow = document.createElement('div');
+        specialRow.className = 'monitor-special-row';
+        specialRow.style.flexWrap = 'wrap';
+        singleBits.forEach(wire => {
+            const btn = document.createElement('div');
+            btn.className = 'monitor-special-btn';
+            btn.innerText = wire.name;
             const raw = getFullState(wire.id);
             const state = raw & 1;
             if (state === 1) btn.classList.add('state-high');
             else btn.classList.add('state-low');
             if (raw & 0x40) btn.classList.add('state-flipped');
             btn.onclick = () => viewer.toggleWire(wire.id, state);
-        } else {
-            btn.style.opacity = '0.2';
-            btn.style.cursor = 'default';
-        }
-        specialRow.appendChild(btn);
-    });
-    monitor.appendChild(specialRow);
+            specialRow.appendChild(btn);
+        });
+        monitor.appendChild(specialRow);
+    }
 
     // Groups
-    groups.forEach(g => {
+    const sortedGroupNames = Array.from(groupsMap.keys()).sort();
+    sortedGroupNames.forEach(groupName => {
+        const groupWires = groupsMap.get(groupName);
+        
+        let val = 0n;
+        groupWires.forEach((wire, i) => {
+            if (wire) {
+                const bit = BigInt(getFullState(wire.id) & 1);
+                val |= (bit << BigInt(i));
+            }
+        });
+
         const label = document.createElement('div');
         label.className = 'monitor-group-label';
-        label.innerText = g.label;
+        const hex = val.toString(16).toUpperCase();
+        const dec = val.toString();
+        label.innerHTML = `${groupName} <span style="font-family:monospace; color:#aaa; margin-left:8px; text-transform:none; font-size:1.5em;">0x${hex} (${dec})</span>`;
         monitor.appendChild(label);
 
         const grid = document.createElement('div');
         grid.className = 'monitor-grid';
-        const groupWires = findGroupWires(g.pattern);
-        groupWires.forEach((wire, i) => {
+        
+        // Use 8 as a minimum size for the grid if it's likely a TT port
+        const isTTPort = ['ui_in', 'uo_out', 'uio_in', 'uio_out'].includes(groupName);
+        const count = Math.max(isTTPort ? 8 : 0, groupWires.length);
+
+        for (let i = 0; i < count; i++) {
+            const wire = groupWires[i];
             const btn = document.createElement('div');
             btn.className = 'monitor-btn';
             btn.innerText = i;
@@ -452,7 +466,7 @@ export function updateCircuitMonitor(viewer, wireData) {
                 btn.style.color = '#333';
             }
             grid.appendChild(btn);
-        });
+        }
         monitor.appendChild(grid);
     });
 }
