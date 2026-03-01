@@ -8,6 +8,8 @@
 #include <tuple>
 #include <algorithm>
 
+#include "geom.h"  // DSU
+
 template <typename T>
 void unique_sort(std::vector<T>& v) {
     std::sort(v.begin(), v.end());
@@ -84,7 +86,7 @@ struct Circuit {
     CSRMap<PackedPeer> net_connectivity; // Switched adjacencies between nets
     std::vector<uint8_t> wire_data;
     
-    enum State : uint8_t { V_MASK = 1, S_DIRTY = 2, S_VISITED = 4 };
+    enum State : uint8_t { V_MASK = 1, S_DIRTY = 2, S_VISITED = 4, S_INIT = 8 };
     
     std::vector<uint32_t> visited_buf, stack_buf;
     Queue dirty_wires;
@@ -132,7 +134,7 @@ struct Circuit {
     }
 
     struct resolve_result {
-        uint8_t driven; int visited_n;
+        uint8_t driven; int visited_n; bool depends_on_uninit;
     };
     resolve_result resolve(uint32_t seed, uint32_t* visited_ptr) {
         uint8_t* s = wire_data.data();
@@ -141,11 +143,15 @@ struct Circuit {
         stack_ptr[0] = seed;
         s[seed] |= S_VISITED;
         uint8_t driven = 0;
+        bool depends_on_uninit = false;
 
         while (sn > 0) {
             uint32_t w = stack_ptr[--sn];
             visited_ptr[vn++] = w;
             for (auto const& p : net_connectivity[w]) {
+                if (!(s[p.gate()] & S_INIT)) {
+                    depends_on_uninit = true;
+                }
                 if ((s[p.gate()] & V_MASK) == p.fet_type()) {
                     if (p.other < 2) driven |= (1 << p.other); // power rail
                     else if (!(s[p.other] & S_VISITED)) {
@@ -155,14 +161,15 @@ struct Circuit {
                 }
             }
         }
-        return {driven, vn};
+        return {driven, vn, depends_on_uninit};
     }
 
 
+    int visited_n;
     int step() {
         uint8_t* s = wire_data.data();
-        uint32_t seed = -1;
         int resolve_count = 0;
+        uint32_t seed = -1;
         while (!dirty_wires.empty()) {
             uint32_t w = dirty_wires.pop_front();
             ++resolve_count;
@@ -171,7 +178,8 @@ struct Circuit {
         if (seed == -1) return resolve_count;
 
         uint32_t* visited_ptr = visited_buf.data();
-        auto [driven, vn] = resolve(seed, visited_ptr);
+        auto [driven, vn, depends_on_uninit] = resolve(seed, visited_ptr);
+        visited_n = vn;
 
         if (driven == 3) short_count++;
         bool has_driven = (driven != 0);// && (driven != 3);
@@ -189,45 +197,51 @@ struct Circuit {
         return resolve_count;
     }
 
-    int sweep(bool active=false) {
-        short_count = 0;
-        int float_count = 0;
-        int flip_count = 0;
+    void init() {
         uint8_t* s = wire_data.data();
         uint32_t* visited_ptr = visited_buf.data();
-        for (int seed=2; seed<wire_n(); ++seed) {
-            if (s[seed] & S_VISITED) continue;
-            auto [driven, vn] = resolve(seed, visited_ptr);
-            if (driven == 0) {
-                float_count++;
-                continue;
-            }
-            uint8_t val = (driven == 2) ? 1 : 0; 
-            if (driven == 3) {
-                short_count++;
-                //printf("Short detected on wire cluster including %d. Components: ", seed);
-                //for (int i=0; i<vn; ++i) printf("%d ", (int)visited_ptr[i]);
-                //printf("\n");
-                //continue;
-            }
-            for (int i=0; i<vn; ++i) {
-                uint32_t w = visited_ptr[i];
-                if ((s[w]&V_MASK) != val) {
-                    flip_count++;
-                    if (active) {
-                        s[w] = val | S_VISITED;
+
+        std::vector<uint32_t> dfs_stack;
+
+        for (int i = 2; i < wire_n(); ++i) {
+            if (s[i] & S_INIT) continue;
+
+            dfs_stack.push_back(i);
+            
+            while (!dfs_stack.empty()) {
+                uint32_t seed = dfs_stack.back();
+                dfs_stack.pop_back();
+
+                if (s[seed] & S_INIT) continue;
+
+                auto [driven, vn, depends_on_uninit] = resolve(seed, visited_ptr);
+
+                if (driven == 3) short_count++;
+                bool has_driven = (driven != 0);
+                uint8_t val = (driven == 2) ? 1 : 0;
+
+                for (int j = 0; j < vn; j++) {
+                    uint32_t w = visited_ptr[j];
+                    uint8_t old = s[w];
+                    
+                    s[w] = (old & ~(S_VISITED | V_MASK)) | S_INIT | (has_driven ? val : (old & V_MASK));
+
+                    if (depends_on_uninit) {
+                        if (!(s[w] & S_DIRTY)) {
+                            s[w] |= S_DIRTY;
+                            dirty_wires.push_back(w);
+                        }
+                    }
+
+                    for (uint32_t term : gate_to_nets[w]) {
+                        if (term >= 2 && !(s[term] & S_INIT)) {
+                            dfs_stack.push_back(term);
+                        }
                     }
                 }
             }
         }
-        for (int w=2; w<wire_n(); ++w) {
-            s[w] = s[w]&V_MASK;
-        }
-        printf("sweep -- shorts: %d  float: %d  flips: %d\n",
-            short_count, float_count, flip_count);
-        return flip_count;
     }
-
 };
 
 struct FET {
@@ -235,14 +249,18 @@ struct FET {
     enum {P=0, N=1};
     uint8_t type; 
     int instance = -1;  // for debugging
-    auto tie() const { return std::tie(gate, term[0], term[1], type); }
+    // Field sort order to simplify inverter detection: input (gate) -> output (term[1]).
+    auto tie() const { return std::tie(gate, term[1], term[0], type); }
     bool operator<(const FET& o) const { return tie() < o.tie(); }  
     bool operator==(const FET& o) const { return tie() == o.tie(); }
 };
 
 struct CircuitBuilder {
     std::vector<FET> fets;
+    DSU treeDSU;
+    
     int wire_n = 2;
+    int inverter_n = 0;
     void add_fet(int g, int t0, int t1, uint8_t type, int instance) {
         if (t0>t1) {
             std::swap(t0, t1);
@@ -257,11 +275,11 @@ struct CircuitBuilder {
         c.dirty_wires.resize(wire_n + 1);
         c.visited_buf.resize(wire_n);
         c.stack_buf.resize(wire_n);
+        treeDSU.reset(wire_n, false);
 
         std::sort(fets.begin(), fets.end());
         std::vector<std::pair<uint32_t, uint32_t>> gate_to_nets;
         std::vector<std::pair<uint32_t, PackedPeer>> net_connectivity;
-        // int inverter_count = 0;
         for (int i = 0; i < fets.size(); ++i) {
             auto const& a = fets[i];
             uint32_t gt = a.gate | ((uint32_t)a.type << 31);
@@ -273,16 +291,24 @@ struct CircuitBuilder {
                 gate_to_nets.push_back({a.gate, a.term[1]});
                 net_connectivity.push_back({a.term[1], {a.term[0], gt}});
             }
+            if (i+1 < fets.size()) { 
+                // detect inverters
+                auto const& b = fets[i+1];
+                if (a.term[0]==0 && b.term[0]==1 && a.gate==b.gate && a.term[1]==b.term[1]) {
+                    inverter_n++;
+                    treeDSU.unite(a.gate, a.term[1]);
+                }
+            }
         }
-        // printf("Detected %d inverters\n", inverter_count);
         c.gate_to_nets.build(gate_to_nets, wire_n);
         c.net_connectivity.build(net_connectivity, wire_n);
 
-        //for (int i = 2; i < wire_n; ++i) c.trigger_gate(i);
-        for (int i=0; i<100; ++i) {
-            int flips = c.sweep(true);
-            if (flips == 0) break;
+        // compress all paths to root pointers
+        for (int i=0; i<wire_n; ++i) {
+            treeDSU.find(i);
         }
+
+        c.init();
 
         return c;
     }

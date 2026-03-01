@@ -8,18 +8,107 @@ export function initViewerUI(viewer) {
     const logContainer = doc('logContainer');
     const logPanel = doc('logPanel');
     const loading = doc('loading');
-    const netSelect = doc('netSelect');
-    const netSearch = doc('netSearch');
+    const treeSelect = doc('treeSelect');
+    const treeSearch = doc('treeSearch');
+    const treeIdList = doc('treeIdList');
     const alphaSlider = doc('alphaSlider');
     const boundaryToggle = doc('boundaryToggle');
     const powerNetToggle = doc('powerNetToggle');
-    const netIdList = doc('netIdList');
     const btnHighlightIds = doc('btnHighlightIds');
+
+    const togglePanelBtn = (btnId, panelId, defaultVisible = true) => {
+        const btn = doc(btnId);
+        const panel = doc(panelId);
+        if (!btn || !panel) return;
+        panel._isVisible = defaultVisible;
+        const update = () => {
+            panel.style.display = panel._isVisible ? 'flex' : 'none';
+            btn.style.color = panel._isVisible ? '#0f0' : '#888';
+            btn.style.borderColor = panel._isVisible ? '#0f0' : '#444';
+        };
+        btn.onclick = () => {
+            panel._isVisible = !panel._isVisible;
+            update();
+        };
+        update();
+    };
+
+    togglePanelBtn('toggleUiBtn', 'ui', true);
+    togglePanelBtn('toggleMonitorBtn', 'circuitMonitor', true);
+    togglePanelBtn('toggleVgaBtn', 'vgaMonitor', true);
+    togglePanelBtn('toggleLogBtn', 'logPanel', true);
+
+    const forceShowPanel = (btnId, panelId) => {
+        const btn = doc(btnId);
+        const panel = doc(panelId);
+        if (btn && panel && !panel._isVisible) {
+            panel._isVisible = true;
+            panel.style.display = 'flex';
+            btn.style.color = '#0f0';
+            btn.style.borderColor = '#0f0';
+        }
+    };
+
+    const makeDraggable = (panelId) => {
+        const panel = doc(panelId);
+        if (!panel) return;
+        const header = panel.querySelector('.panel-header');
+        if (!header) return;
+
+        let isDragging = false;
+        let startX, startY;
+        let currentX, currentY;
+
+        header.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return; // Only left click
+            isDragging = true;
+            
+            const rect = panel.getBoundingClientRect();
+            
+            // Clear right/bottom CSS constraints if set, replacing with explicit left/top
+            if (panel.style.right !== '' || !panel.style.left) {
+                panel.style.left = rect.left + 'px';
+                panel.style.right = 'auto';
+            }
+            if (panel.style.bottom !== '' || !panel.style.top) {
+                panel.style.top = rect.top + 'px';
+                panel.style.bottom = 'auto';
+            }
+            
+            currentX = parseFloat(panel.style.left) || rect.left;
+            currentY = parseFloat(panel.style.top) || rect.top;
+            startX = e.clientX;
+            startY = e.clientY;
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            e.preventDefault();
+        });
+
+        const onMouseMove = (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            panel.style.left = (currentX + dx) + 'px';
+            panel.style.top = (currentY + dy) + 'px';
+        };
+
+        const onMouseUp = () => {
+            isDragging = false;
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+    };
+
+    makeDraggable('ui');
+    makeDraggable('circuitMonitor');
+    makeDraggable('vgaMonitor');
+    makeDraggable('logPanel');
 
     viewer.onLog = (msg) => {
         if (!logContainer) return;
         logContainer.textContent += msg;
-        if (logPanel) logPanel.classList.remove('collapsed');
+        forceShowPanel('toggleLogBtn', 'logPanel');
         logContainer.parentElement.scrollTop = logContainer.parentElement.scrollHeight;
     };
 
@@ -28,13 +117,13 @@ export function initViewerUI(viewer) {
             loading.innerText = msg;
             loading.style.display = 'block';
         }
-        if (logPanel) logPanel.classList.remove('collapsed');
+        forceShowPanel('toggleLogBtn', 'logPanel');
     };
 
     viewer.onLoaded = () => {
         if (loading) loading.style.display = 'none';
         rebuildLayerUI(viewer);
-        updateNetListUI(viewer);
+        updateTreeListUI(viewer);
         updateCircuitMonitor(viewer);
     };
 
@@ -46,12 +135,7 @@ export function initViewerUI(viewer) {
         updateVgaMonitor(viewer, buffer, width, height);
     };
 
-    // Toggle logic for all panels
-    document.querySelectorAll('.panel-header').forEach(header => {
-        header.onclick = () => {
-            header.parentElement.classList.toggle('collapsed');
-        };
-    });
+    // Toggle logic for all panels has been moved to top menu
 
     // Event listeners for viewer state
     if (alphaSlider) alphaSlider.oninput = () => {
@@ -97,6 +181,33 @@ export function initViewerUI(viewer) {
     };
 
     viewer.vgaRunning = false;
+
+    // Auto-stepper
+    const btnStep = doc('btnStepWave');
+    if (btnStep) btnStep.onclick = () => viewer.stepCircuit();
+
+    const autoStepToggle = doc('autoStepToggle');
+    const autoStepSpeed = doc('autoStepSpeed');
+    let autoStepInterval = null;
+
+    const startAutoStep = () => {
+        if (autoStepInterval) clearInterval(autoStepInterval);
+        if (!autoStepToggle.checked) return;
+        const fps = parseFloat(autoStepSpeed.value) || 10;
+        const delay = 1000 / fps;
+        autoStepInterval = setInterval(() => {
+            if (viewer.isLoaded) {
+                viewer.stepCircuit();
+            }
+        }, delay);
+    };
+
+    if (autoStepToggle) {
+        autoStepToggle.onchange = startAutoStep;
+    }
+    if (autoStepSpeed) {
+        autoStepSpeed.oninput = startAutoStep;
+    }
     
     // Hook into VGA frame arrival to trigger next tick if running
     const originalOnVgaFrame = viewer.onVgaFrame;
@@ -125,41 +236,48 @@ export function initViewerUI(viewer) {
     }
 
     if (doc('btnReset')) doc('btnReset').onclick = () => viewer.resetView();
-    if (doc('btnToggleAll')) doc('btnToggleAll').onclick = () => {
-        const anyVisible = Object.values(viewer.layers).some(l => l.visible);
-        viewer.toggleAllLayers(!anyVisible);
-        rebuildLayerUI(viewer);
-    };
 
-    if (netSearch) {
-        netSearch.oninput = () => updateNetListUI(viewer);
-        netSearch.onkeydown = (e) => {
-            if (e.key === 'ArrowDown' && netSelect && netSelect.options.length > 0) {
+    const layerMinIdx = doc('layerMinIdx');
+    if (layerMinIdx) layerMinIdx.oninput = () => rebuildLayerUI(viewer);
+    const layerMaxIdx = doc('layerMaxIdx');
+    if (layerMaxIdx) layerMaxIdx.oninput = () => rebuildLayerUI(viewer);
+
+    if (treeSearch) {
+        treeSearch.oninput = () => updateTreeListUI(viewer);
+        treeSearch.onkeydown = (e) => {
+            if (e.key === 'ArrowDown' && treeSelect && treeSelect.options.length > 0) {
                 e.preventDefault();
-                netSelect.focus();
-                if (netSelect.selectedIndex === -1) {
-                    netSelect.options[0].selected = true;
-                    syncNetSelection(viewer);
+                treeSelect.focus();
+                if (treeSelect.selectedIndex === -1) {
+                    treeSelect.options[0].selected = true;
+                    syncTreeSelection(viewer);
                 }
             }
         };
     }
 
-    if (netSelect) {
-        netSelect.onchange = netSelect.oninput = netSelect.onkeyup = netSelect.onclick = () => syncNetSelection(viewer);
+    if (treeSelect) {
+        treeSelect.onchange = treeSelect.oninput = treeSelect.onkeyup = treeSelect.onclick = () => syncTreeSelection(viewer);
     }
 
     if (btnHighlightIds) {
         btnHighlightIds.onclick = () => {
-            if (!netIdList) return;
-            const ids = parseIdList(netIdList.value);
-            viewer.syncSelectedNets(ids);
-            updateNetListUI(viewer);
+            if (!treeIdList) return;
+            const ids = parseIdList(treeIdList.value);
+            // Translate Tree IDs to Net IDs since highlight sync operates via nets internally under the hood
+            const selectedNets = new Set();
+            ids.forEach(treeId => {
+                 if (viewer.treeToNets[treeId]) {
+                      viewer.treeToNets[treeId].forEach(netId => selectedNets.add(netId));
+                 }
+            });
+            viewer.syncSelectedNets(Array.from(selectedNets));
+            updateTreeListUI(viewer);
         };
     }
 
-    if (netIdList) {
-        netIdList.onkeydown = (e) => {
+    if (treeIdList) {
+        treeIdList.onkeydown = (e) => {
             if (e.key === 'Enter') {
                 btnHighlightIds.click();
             }
@@ -186,25 +304,38 @@ export function initViewerUI(viewer) {
     if (btnClearWp && viewer.animator) {
         btnClearWp.onclick = () => {
             viewer.animator.clearWaypoints();
+            if (btnPlayAnim) {
+                btnPlayAnim.innerText = 'Play Sequence';
+                btnPlayAnim.style.background = '#284';
+            }
             updateWaypointListUI(viewer.animator, wpList);
         };
     }
 
     if (btnPlayAnim && viewer.animator) {
         btnPlayAnim.onclick = () => {
-            if (viewer.animator.waypoints.length > 1) {
-                viewer.animator.play();
+            if (viewer.animator.isPlaying) {
+                viewer.animator.stop();
+                btnPlayAnim.innerText = 'Play Sequence';
+                btnPlayAnim.style.background = '#284';
                 viewer.requestFrame();
+            } else {
+                if (viewer.animator.waypoints.length > 1) {
+                    viewer.animator.play(true); // Auto-loop continuously
+                    btnPlayAnim.innerText = 'Stop Sequence';
+                    btnPlayAnim.style.background = '#822';
+                    viewer.requestFrame();
+                }
             }
         };
     }
 
-    if (doc('btnClearNet')) doc('btnClearNet').onclick = () => {
-        if (netSelect) netSelect.selectedIndex = -1;
-        if (netSearch) netSearch.value = '';
-        if (netIdList) netIdList.value = '';
+    if (doc('btnClearTrees')) doc('btnClearTrees').onclick = () => {
+        if (treeSelect) treeSelect.selectedIndex = -1;
+        if (treeSearch) treeSearch.value = '';
+        if (treeIdList) treeIdList.value = '';
         viewer.syncSelectedNets([]);
-        updateNetListUI(viewer);
+        updateTreeListUI(viewer);
     };
 
     window.addEventListener('keydown', (e) => {
@@ -212,10 +343,10 @@ export function initViewerUI(viewer) {
             const dir = e.key === 'ArrowDown' ? 1 : -1;
             if (viewer.soloLayerId !== null) {
                 cycleSoloLayer(viewer, dir);
-            } else if (netSelect && netSelect.options.length > 0) {
+            } else if (treeSelect && treeSelect.options.length > 0) {
                 e.preventDefault();
-                netSelect.selectedIndex = Math.max(0, Math.min(netSelect.selectedIndex + dir, netSelect.options.length - 1));
-                syncNetSelection(viewer);
+                treeSelect.selectedIndex = Math.max(0, Math.min(treeSelect.selectedIndex + dir, treeSelect.options.length - 1));
+                syncTreeSelection(viewer);
             }
         }
         if (e.key === 'Escape') {
@@ -235,38 +366,66 @@ export function initViewerUI(viewer) {
             e.preventDefault();
             viewer.stepCircuit();
         }
+        if (e.key.toLowerCase() === 'p') {
+            if (btnPlayAnim) btnPlayAnim.click();
+        }
     });
 }
 
-function syncNetSelection(viewer) {
-    const netSelect = document.getElementById('netSelect');
-    if (!netSelect) return;
-    const selectedIds = Array.from(netSelect.selectedOptions).map(opt => parseInt(opt.value));
-    viewer.syncSelectedNets(selectedIds);
+function syncTreeSelection(viewer) {
+    const treeSelect = document.getElementById('treeSelect');
+    
+    const selectedIds = new Set();
+    
+    if (treeSelect && viewer.treeAreas) {
+        // Find all nets that belong to the selected trees
+        Array.from(treeSelect.selectedOptions).forEach(opt => {
+            const treeId = parseInt(opt.value);
+            if (viewer.treeToNets[treeId]) {
+                viewer.treeToNets[treeId].forEach(netId => selectedIds.add(netId));
+            }
+        });
+    }
+    
+    viewer.syncSelectedNets(Array.from(selectedIds));
 }
 
-function updateNetListUI(viewer) {
-    const select = document.getElementById('netSelect');
-    const search = document.getElementById('netSearch');
-    if (!select || !search) return;
+export function updateTreeListUI(viewer) {
+    const select = document.getElementById('treeSelect');
+    const search = document.getElementById('treeSearch');
+    if (!select || !viewer.treeAreas) return;
 
-    const query = search.value.toLowerCase();
-    const sortedNets = Object.entries(viewer.netAreas).sort((a, b) => b[1] - a[1]);
+    const query = search ? search.value.toLowerCase() : "";
+    const sortedTrees = Object.entries(viewer.treeAreas).sort((a, b) => b[1] - a[1]);
+
     const netToName = {};
-    viewer.wireNames.forEach(w => netToName[w.id] = w.name);
+    if (viewer.wireNames) {
+        viewer.wireNames.forEach(w => {
+            const isPower = /^(v(dd|ss|pwr|gnd)|vccd|vssd)\d*$/i.test(w.name);
+            if (!netToName[w.id] || isPower) {
+                netToName[w.id] = w.name;
+            }
+        });
+    }
 
     select.innerHTML = '';
     let count = 0;
-    for (const [netStr, area] of sortedNets) {
-        const net = parseInt(netStr);
-        const name = netToName[net];
-        const label = name ? `${name} (Net ${net})` : `Net ${net} (Area: ${area.toLocaleString()})`;
+    for (const [treeStr, area] of sortedTrees) {
+        const treeId = parseInt(treeStr);
+        const name = netToName[treeId];
+        const label = name ? `${name} (Tree ${treeId}) (Area: ${area.toLocaleString()})` : `Tree ${treeId} (Area: ${area.toLocaleString()})`;
         
         if (label.toLowerCase().includes(query)) {
             const opt = document.createElement('option');
-            opt.value = net;
+            opt.value = treeId;
             opt.innerText = label;
-            if (viewer.netStateData && (viewer.netStateData[net] & 0x80)) opt.selected = true;
+            
+            // Re-select if any net in this tree was highlighted
+            if (viewer.netStateData && viewer.treeToNets[treeId]) {
+                const anyNetHighlighted = Array.from(viewer.treeToNets[treeId]).some(netId => viewer.netStateData[netId] & 0x80);
+                if (anyNetHighlighted) opt.selected = true;
+            }
+            
             select.appendChild(opt);
             if (++count >= 1000) break;
         }
@@ -275,72 +434,91 @@ function updateNetListUI(viewer) {
 
 export function rebuildLayerUI(viewer) {
     const layerList = document.getElementById('layerList');
-    if (!layerList) return;
+    const minSlider = document.getElementById('layerMinIdx');
+    const maxSlider = document.getElementById('layerMaxIdx');
+    const rangeFill = document.getElementById('layerRangeFill');
+    if (!layerList || !minSlider || !maxSlider) return;
+
+    // Filter out hidden FET layers (3=CHANNEL, 4=N_TERM) for the UI list
+    // Sort ascending by Z so slider left=bottom, right=top
+    const lids = viewer.sortedLids.filter(lid => lid != 3 && lid != 4)
+        .sort((a, b) => (LAYER_CONFIG[a]?.z || 0) - (LAYER_CONFIG[b]?.z || 0));
+
+    if (lids.length === 0) return;
+
+    if (minSlider.max != lids.length - 1) {
+        minSlider.min = 0;
+        minSlider.max = lids.length - 1;
+        minSlider.value = 0;
+        maxSlider.min = 0;
+        maxSlider.max = lids.length - 1;
+        maxSlider.value = lids.length - 1;
+    }
+
+    const minIdx = parseInt(minSlider.value);
+    const maxIdx = parseInt(maxSlider.value);
+    const actualMin = Math.min(minIdx, maxIdx);
+    const actualMax = Math.max(minIdx, maxIdx);
+
+    if (lids.length > 1) {
+        const percentMin = (actualMin / (lids.length - 1)) * 100;
+        const percentMax = (actualMax / (lids.length - 1)) * 100;
+        rangeFill.style.left = `${percentMin}%`;
+        rangeFill.style.width = `${percentMax - percentMin}%`;
+    }
+
+    // Apply visibility
+    for (const lid of viewer.sortedLids) {
+        if (viewer.layers[lid]) viewer.layers[lid].visible = false;
+    }
+
+    for (let i = actualMin; i <= actualMax; i++) {
+        const lid = lids[i];
+        if (viewer.layers[lid]) viewer.layers[lid].visible = true;
+        if (lid == 5) {
+            if (viewer.layers[3]) viewer.layers[3].visible = true;
+            if (viewer.layers[4]) viewer.layers[4].visible = true;
+        }
+    }
+
     layerList.innerHTML = '';
     
-    // Sort layers by Z descending for UI
-    const lids = viewer.sortedLids.slice().sort((a, b) => Number(b) - Number(a));
-    
-    lids.forEach(lid => {
-        if (lid == 3 || lid == 4) return; // Hidden FET layers
-        
+    // Sort descending for the UI badges display (top layer first)
+    const displayLids = lids.slice().sort((a, b) => (LAYER_CONFIG[b]?.z || 0) - (LAYER_CONFIG[a]?.z || 0));
+
+    displayLids.forEach(lid => {
         const div = document.createElement('div');
-        div.className = 'layer-toggle';
+        div.className = 'layer-badge' + (viewer.layers[lid].visible ? '' : ' hidden-layer');
         const config = LAYER_CONFIG[lid] || { name: "Layer " + lid, color: [0.5, 0.5, 0.5] };
 
-        // Checkbox
-        const input = document.createElement('input');
-        input.type = 'checkbox';
-        input.checked = viewer.layers[lid].visible;
-        input.onchange = (e) => {
-            viewer.layers[lid].visible = e.target.checked;
-            if (lid == 5) {
-                if (viewer.layers[3]) viewer.layers[3].visible = e.target.checked;
-                if (viewer.layers[4]) viewer.layers[4].visible = e.target.checked;
-            }
-            viewer.requestFrame();
-        };
-        div.appendChild(input);
+        const c = config.color;
+        const s = document.createElement('span');
+        s.className = 'layer-color';
+        s.style.backgroundColor = `rgba(${c[0]*255}, ${c[1]*255}, ${c[2]*255}, 1)`;
+        
+        const text = document.createElement('span');
+        text.innerText = lid == 5 ? "FET" : config.name;
+        
+        div.appendChild(s);
+        div.appendChild(text);
 
-        // Swatches and Labels
-        const addControl = (id, text) => {
-            const cfg = LAYER_CONFIG[id];
-            if (!cfg) return;
-            const c = cfg.color;
-            const s = document.createElement('span');
-            s.className = 'layer-color';
-            s.style.backgroundColor = `rgba(${c[0]*255}, ${c[1]*255}, ${c[2]*255}, 1)`;
-            s.onclick = () => {
-                viewer.setSoloLayer(viewer.soloLayerId === id ? null : id);
-                rebuildLayerUI(viewer);
-            };
-            div.appendChild(s);
-            
-            if (text) {
-                const l = document.createElement('span');
-                l.innerText = text;
-                l.onclick = s.onclick;
-                div.appendChild(l);
-            }
+        div.onclick = () => {
+            viewer.setSoloLayer(viewer.soloLayerId === lid ? null : lid);
+            rebuildLayerUI(viewer);
         };
 
-        if (lid == 5) {
-            addControl(4); addControl(3); addControl(5, " FET");
-        } else {
-            addControl(lid, " " + config.name);
-        }
-
-        // Apply solo highlights
         if (viewer.soloLayerId !== null) {
-            const isActive = (lid >= 3 && lid <= 5);
-            const isSoloActive = (viewer.soloLayerId >= 3 && viewer.soloLayerId <= 5);
+            const isActive = (lid == 5);
+            const isSoloActive = (viewer.soloLayerId == 3 || viewer.soloLayerId == 4 || viewer.soloLayerId == 5);
             const match = (isActive && isSoloActive) || (String(lid) === String(viewer.soloLayerId));
             div.style.opacity = match ? '1.0' : '0.3';
-            div.style.background = match ? 'rgba(0, 255, 0, 0.1)' : 'transparent';
+            if (match) div.classList.remove('hidden-layer');
         }
 
         layerList.appendChild(div);
     });
+
+    viewer.requestFrame();
 }
 
 function cycleSoloLayer(viewer, dir) {
@@ -393,13 +571,9 @@ export function updateCircuitMonitor(viewer, wireData) {
 
     monitor.innerHTML = '';
     
-    // Controls
-    const controls = document.createElement('div');
-    controls.className = 'monitor-controls';
-    controls.innerHTML = '<button id="btnStepWave">Step Wave</button>';
-    monitor.appendChild(controls);
-    const btnStep = document.getElementById('btnStepWave');
-    if (btnStep) btnStep.onclick = () => viewer.stepCircuit();
+    // Show static controls
+    const controlsUI = document.getElementById('circuitControls');
+    if (controlsUI) controlsUI.style.display = 'block';
 
     // Single Bits Row
     if (singleBits.length > 0) {
@@ -436,9 +610,9 @@ export function updateCircuitMonitor(viewer, wireData) {
 
         const label = document.createElement('div');
         label.className = 'monitor-group-label';
-        const hex = val.toString(16).toUpperCase();
-        const dec = val.toString();
-        label.innerHTML = `${groupName} <span style="font-family:monospace; color:#aaa; margin-left:8px; text-transform:none; font-size:1.5em;">0x${hex} (${dec})</span>`;
+        const hex = val.toString(16).toUpperCase().padStart(2, "0");
+        const dec = val.toString().padStart(3, " ");
+        label.innerHTML = `${groupName} <span style="font-family:monospace; white-space: pre; color:#aaa; margin-left:8px; text-transform:none; font-size:1.5em;">0x${hex} (${dec})</span>`;
         monitor.appendChild(label);
 
         const grid = document.createElement('div');

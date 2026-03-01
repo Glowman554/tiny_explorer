@@ -337,11 +337,12 @@ int main() {
     wasm_arena_init(1);
     //const char * path = "gds/ihp-25a/tt_um_znah_vga_ca.gds", *pdk = "ihp-sg13g2";
     //const char * path = "gds/sky-25b/tt_um_pongsagon_tinygpu_v2.oas", *pdk = "sky130A";
-    const char * path = "gds/09/tt_um_rejunity_atari2600.gds", *pdk = "sky130A";
-    //const char * path = "gds/09/tt_um_znah_vga_ca.gds", *pdk = "sky130A";
+    //const char * path = "gds/09/tt_um_rejunity_atari2600.gds", *pdk = "sky130A";
+    const char * path = "gds/09/tt_um_znah_vga_ca.gds", *pdk = "sky130A";
     //const char * path = "gds/gf-0p2/tt_um_2048_vga_game.oas", *pdk = "gf180mcuD";
     //const char * path = "gds/09/tt_um_a1k0n_nyancat.gds", *pdk = "sky130A";
     //const char * path = "gds/08/tt_um_a1k0n_vgadonut.gds", *pdk = "sky130A";
+    //const char * path = "gds/09/tt_um_oscillating_bones.gds", *pdk = "sky130A";
     printf("Loading: %s\n", path);
 
     CircuitExtractor proc;
@@ -364,7 +365,7 @@ int main() {
 
     VGASimulator sim(proc.circuit, proc.labeledWires);
     if (sim.isValid()) {
-        //sim.run(380000);
+        sim.run(380000);
         //sim.run(100);
     } else {
         printf("No VGA pins detected, skipping simulation.\n");

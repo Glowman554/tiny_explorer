@@ -365,6 +365,7 @@ struct CellProcessor {
 
         cell.bbox = Rect::empty();
         for (int i = 0; i < L_COUNT; i++) {
+            optimizeRects(tempRects[i]);
             auto& layer = cell.layers[i];
             // make sure even empty layers have correct rectStart
             layer.rectStart = (uint32_t)cell.rects.size();

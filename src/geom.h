@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdio>
+#include <numeric>
 #include <vector>
 #include <cstdint>
 #include <algorithm>
@@ -29,8 +30,13 @@ struct BVHView {
 
 struct DSU {
     std::vector<int> p;
-    void reset(size_t n) {p.assign(n, -1);}
-    bool is_root(int i) const { return p[i] < 0; }
+    void reset(size_t n, bool use_rank = true) {
+        p.assign(n, -1);
+        if (!use_rank) {
+            std::iota(p.begin(), p.end(), 0);
+        }
+    }
+    bool is_root(int i) const { return p[i] < 0 || p[i] == i; }
     int find(int i) {
         int root = i;
         while (!is_root(root)) root = p[root];
@@ -40,8 +46,10 @@ struct DSU {
     void unite(int i, int j) {
         int ri = find(i), rj = find(j);
         if (ri != rj) {
-            if (p[ri] > p[rj]) std::swap(ri, rj);
-            p[ri] += p[rj];
+            if (p[ri] < 0) {  // If using rank/sizes (negative values)
+                if (p[ri] > p[rj]) std::swap(ri, rj);
+                p[ri] += p[rj];
+            }
             p[rj] = ri;
         }
     }
@@ -300,22 +308,6 @@ int optimizeRects(std::vector<RectT> & rects) {
         }
     }
     rects.resize(writeIdx);
-
-    // Validation (debug only)
-    /*if (rects.size() > 1) {
-        nodes.clear();
-        buildLayerBVH(rects, 0, (uint32_t)rects.size(), nodes);
-        int stillCanMerge = 0;
-        collideSelf(nodes, rects, [&](int i, int j) {
-            if (canMergeX(rects[i], rects[j]) || canMergeY(rects[i], rects[j])) {
-                ++stillCanMerge;
-            }
-        }, touches);
-
-        if (stillCanMerge) {
-            printf("Warning: %d rects still not merged\n", stillCanMerge);
-        }
-    }*/
     
     return (int)(initialSize - rects.size());
 }

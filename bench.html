@@ -164,6 +164,7 @@
         function createRow(file) {
             const row = document.createElement('tr');
             row.id = `row-${file.replace(/\//g, '_')}`;
+            const [fUrl, fPdk] = file.split(':');
             row.innerHTML = `
                 <td>${file}</td>
                 <td class="numeric">-</td>
@@ -178,7 +179,9 @@
                 <td class="numeric">-</td>
                 <td class="numeric">-</td>
                 <td class="status-cell pending">Pending...</td>
-                <td style="text-align:center">-</td>
+                <td style="text-align:center; white-space: nowrap;">
+                    <a href="viewer.html?file=${fUrl}${fPdk ? '&pdk='+fPdk : ''}" target="_blank" class="btn-log" style="text-decoration:none; display:inline-block; border-color:var(--accent-cyan); color:var(--accent-cyan)">View</a>
+                </td>
             `;
             return row;
         }
@@ -258,7 +261,7 @@
                             row.querySelector('.status-cell').innerHTML = `<span class="badge-warn">ERROR</span>`;
                             console.error(`Error in ${file}:`, e.data.message);
                             fileLogs[file] += `\nERROR: ${e.data.message}`;
-                            row.querySelectorAll('td')[8].innerHTML = `<button class="btn-log" onclick="showLogs('${file}')">View Error</button>`;
+                            row.querySelectorAll('td')[12].innerHTML += ` <button class="btn-log" onclick="showLogs('${file}')">View Error</button>`;
                             worker.terminate();
                             completed++;
                             updateProgress();
@@ -293,6 +296,9 @@
 
         runBtn.addEventListener('click', runBenchmark);
         statusText.textContent = `Ready to benchmark ${GDS_FILES.length} files.`;
+        
+        // Populate initial table structure before run
+        GDS_FILES.forEach(file => tbody.appendChild(createRow(file)));
     </script>
 </body>
 </html>

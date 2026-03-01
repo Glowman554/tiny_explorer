@@ -10,8 +10,8 @@ struct Instance : Rect {
     Transform tform;
 };
 
-struct RectWire : Rect { int wire; };
-constexpr int RECT_WIRE_FIELDS = 5; // x1, y1, x2, y2, wire
+struct RectWire : Rect { int wire, tree; };
+constexpr int RECT_WIRE_FIELDS = 6; // x1, y1, x2, y2, wire, tree
 
 struct CircuitExtractor {
     gdstk::Library glib;
@@ -36,7 +36,7 @@ struct CircuitExtractor {
     DSU globalDSU;
     std::vector<std::pair<int, std::string>> labeledWires;
     DSU componentDSU;
-
+    std::vector<int> wire2root;
 
     std::vector<RectWire> flatRects;
     std::array<uint32_t, L_COUNT + 1> flatLayerOffsets;
@@ -227,6 +227,7 @@ struct CircuitExtractor {
         }
 
         circuit = builder.build();
+        wire2root = builder.treeDSU.p;
     }
 
     void exportRects() {
@@ -250,12 +251,14 @@ struct CircuitExtractor {
                 for (uint32_t ri = 0; ri < layer.rectCount; ri++) {
                     uint32_t rectIdx = layer.rectStart + ri;
                     int flatWire = -1; // some rects don't have wire_id (NWELL)
+                    int treeId = -1;
                     int localWire = cell.rect2wire[rectIdx];
                     if (localWire >= 0) {
                         flatWire = segment2flat[instOffsets[ii] + localWire];
+                        treeId = wire2root[flatWire];
                     }
                     Rect r = inst.tform.apply(cell.rects[rectIdx]);
-                    layerTemp.push_back({r, flatWire});
+                    layerTemp.push_back({r, flatWire, treeId});
                 }
             }
             
@@ -263,8 +266,8 @@ struct CircuitExtractor {
                 int discarded = optimizeRects(layerTemp);
                 int initial = (int)layerTemp.size() + discarded;
                 float pct = initial > 0 ? (float)discarded * 100.0f / initial : 0.0f;
-                flatRects.insert(flatRects.end(), layerTemp.begin(), layerTemp.end());
                 printf("  %-10s: %zu rects (%d discarded, %.1f%%)\n", getLayerName((LayerID)li), layerTemp.size(), discarded, pct);
+                flatRects.insert(flatRects.end(), layerTemp.begin(), layerTemp.end());
             }
         }
         flatLayerOffsets[L_COUNT] = (uint32_t)flatRects.size();
@@ -274,8 +277,8 @@ struct CircuitExtractor {
     void printStats() {
         printf("Total flat rects: %zu\n", flatRects.size());
         printf("Total instances: %zu\n", instances.size());
-        printf("Global Netlist Statistics:\n  Segments: %zu\n  Wires: %zu\n  FETs: %zu\n", 
-               segment2flat.size(), circuit.wire_n(), builder.fets.size());
+        printf("Global Netlist Statistics:\n  Segments: %zu\n  Wires: %zu\n  FETs: %zu\n  INVs: %d\n", 
+               segment2flat.size(), circuit.wire_n(), builder.fets.size(), builder.inverter_n);
 
         int totalComp = 0;
         int maxCompSize = 0;

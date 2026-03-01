@@ -8,6 +8,7 @@ export const VS_SOURCE = `#version 300 es
     in vec3 a_pos;       // Box vertex position (0..1)
     in ivec4 a_rect;     // Rect: x1, y1, x2, y2
     in int a_net;        // Net ID
+    in int a_tree;       // Tree ID
     
     uniform mat4 u_viewMat;
     uniform float u_layerZ;
@@ -15,7 +16,13 @@ export const VS_SOURCE = `#version 300 es
     uniform float u_showPowerNets;
     uniform float u_isExemptLayer;
     
-    flat out int v_net;
+    uniform vec4 u_color;
+    uniform float u_isHighlighting; 
+    uniform float u_stateMix;       
+    uniform lowp usampler2D u_netStates;
+    uniform ivec2 u_netStatesSize;
+    
+    flat out vec4 v_color;
     out vec3 v_pos;
     out float v_light;
 
@@ -35,46 +42,23 @@ export const VS_SOURCE = `#version 300 es
         vec4 p = vec4(rectPos, z, 1.0);
         gl_Position = u_viewMat * p;
         
-        v_net = a_net;
         v_pos = a_pos;
         v_light = 0.7 + 0.3 * a_pos.z; // Simple top lighting
-    }
-`;
 
-export const FS_SOURCE = `#version 300 es
-    precision mediump float;
-    
-    uniform vec4 u_color;
-    uniform float u_globalAlpha;
-    uniform float u_layerAlpha;
-    uniform float u_showBoundaries;
-    uniform float u_isHighlighting; // 1.0 if any net is highlighted
-    uniform float u_stateMix;       // 0.0=layer, 1.0=state
-    uniform lowp usampler2D u_netStates;
-    uniform ivec2 u_netStatesSize;
-    
-    flat in int v_net;
-    in vec3 v_pos;
-    in float v_light;
-    
-    out vec4 fragColor;
-
-    void main() {
+        // Color computation
         vec3 layerColor = u_color.rgb;
         vec3 stateColor = vec3(0.5, 0.5, 0.5);
         bool isHighlighted = false;
         
-        if (v_net >= 0 && u_netStatesSize.x > 0) {
-            ivec2 texCoords = ivec2(v_net % u_netStatesSize.x, v_net / u_netStatesSize.x);
+        if (a_net >= 0 && u_netStatesSize.x > 0) {
+            ivec2 texCoords = ivec2(a_net % u_netStatesSize.x, a_net / u_netStatesSize.x);
             uint state = texelFetch(u_netStates, texCoords, 0).r;
             
             // Bit 0 is Logic Value (1=High, 0=Low)
             if ((state & 1u) != 0u) {
                 stateColor = vec3(1.);
-                //stateColor = vec3(1.0, 0.65, 0.35); // Orange
             } else {
                 stateColor = vec3(0.0);
-                //stateColor = vec3(0.35, 0.65, 1.0); // Blue
             }
             
             // Bit 6 is Flipped/Changed flag
@@ -82,7 +66,7 @@ export const FS_SOURCE = `#version 300 es
             if (isFlipped) {
                 stateColor = mix(stateColor, 
                 (state & 1u) != 0u ? vec3(1.0, 1.0, 0.0) : vec3(0.0, 1.0, 1.0), 
-                0.7); // Yellowish flip highlight
+                0.7); 
             } else {
                 stateColor *= 0.5;
             }
@@ -92,20 +76,46 @@ export const FS_SOURCE = `#version 300 es
         }
 
         vec3 baseRGB = mix(layerColor, stateColor, u_stateMix);
-        vec4 color = vec4(baseRGB, u_color.a);
-        color.rgb *= v_light;
+        vec4 computedColor = vec4(baseRGB, u_color.a);
         
         if (u_isHighlighting > 0.5) {
             if (!isHighlighted) {
                 // Dim non-highlighted nets
-                color.a *= 0.1;
-                color.rgb *= 0.5;
+                computedColor.a *= 0.1;
+                computedColor.rgb *= 0.5;
             } else {
                 // Highlight
-                color.rgb = mix(color.rgb, vec3(1.0, 1.0, 1.0), 0.3);
-                color.a = 1.0;
+                if (a_net == a_tree && a_tree > 1) {
+                    // Root wire is red
+                    computedColor.rgb = mix(computedColor.rgb, vec3(1.0, 0.0, 0.0), 0.8);
+                } else {
+                    // Other nets are white-ish
+                    computedColor.rgb = mix(computedColor.rgb, vec3(1.0, 1.0, 1.0), 0.3);
+                }
+                computedColor.a = 1.0;
             }
         }
+        
+        v_color = computedColor;
+    }
+`;
+
+export const FS_SOURCE = `#version 300 es
+    precision mediump float;
+    
+    uniform float u_globalAlpha;
+    uniform float u_layerAlpha;
+    uniform float u_showBoundaries;
+    
+    flat in vec4 v_color;
+    in vec3 v_pos;
+    in float v_light;
+    
+    out vec4 fragColor;
+
+    void main() {
+        vec4 color = v_color;
+        color.rgb *= v_light;
         
         if (u_showBoundaries > 0.5) {
             vec3 d = min(fwidth(v_pos), 0.1);
@@ -128,7 +138,7 @@ export const LAYER_CONFIG = [
     { name: "N_TERM",  color: [0.2, 0.6, 0.2, 1.0], z: _z,    h: _h },
     { name: "P_TERM",  color: [0.8, 0.8, 0.2, 1.0], z: _z,    h: _h },
     { name: "POLY",    color: [0.8, 0.2, 0.2, 1.0], z: _z+=_h, h: _h },
-    { name: "LICON",   color: [0.5, 0.5, 0.5, 1.0], z: _z+5,   h: _h=600 },
+    { name: "LICON",   color: [0.5, 0.5, 0.5, 1.0], z: _z+5,   h: _h=h_via+h_met-5 },
     { name: "LI1",     color: [0.3, 0.3, 0.9, 1.0], z: _z+=_h, h: _h=h_met },
     { name: "MCON",    color: [0.6, 0.6, 0.6, 1.0], z: _z+=_h, h: _h=h_via },
     { name: "MET1",    color: [0.7, 0.4, 0.8, 1.0], z: _z+=_h, h: _h=h_met },
@@ -231,7 +241,8 @@ export class CircuitViewer {
         this.attribs = {
             pos: gl.getAttribLocation(this.program, "a_pos"),
             rect: gl.getAttribLocation(this.program, "a_rect"),
-            net: gl.getAttribLocation(this.program, "a_net")
+            net: gl.getAttribLocation(this.program, "a_net"),
+            tree: gl.getAttribLocation(this.program, "a_tree")
         };
 
         // Cube Geometry (Shared, Indexed)
@@ -439,6 +450,7 @@ export class CircuitViewer {
         gl.enable(gl.DEPTH_TEST);
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        //gl.enable(gl.SAMPLE_ALPHA_TO_COVERAGE);
 
         const reverseOrder = Math.cos(this.view.tilt) < 0;
         const sortedLidsForRender = Object.keys(this.layers).sort((a, b) => {
@@ -476,7 +488,7 @@ export class CircuitViewer {
             gl.uniform1f(this.unis.layerAlpha, config.alphaMultiplier !== undefined ? config.alphaMultiplier : 1.0);
 
             gl.bindBuffer(gl.ARRAY_BUFFER, layer.buffer);
-            const stride = 5 * 4;
+            const stride = 6 * 4;
             
             gl.enableVertexAttribArray(a_rect);
             gl.vertexAttribIPointer(a_rect, 4, gl.INT, stride, 0);
@@ -485,6 +497,12 @@ export class CircuitViewer {
             gl.enableVertexAttribArray(a_net);
             gl.vertexAttribIPointer(a_net, 1, gl.INT, stride, 4 * 4);
             gl.vertexAttribDivisor(a_net, 1);
+
+            if (this.attribs.tree !== -1) {
+                gl.enableVertexAttribArray(this.attribs.tree);
+                gl.vertexAttribIPointer(this.attribs.tree, 1, gl.INT, stride, 5 * 4);
+                gl.vertexAttribDivisor(this.attribs.tree, 1);
+            }
 
             gl.drawElementsInstanced(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0, layer.count);
         }
@@ -545,6 +563,8 @@ export class CircuitViewer {
         }
 
         this.netAreas = {};
+        this.treeAreas = {};
+        this.treeToNets = {};
         this.bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
         this.layers = {};
         this.sortedLids = [];
@@ -553,8 +573,8 @@ export class CircuitViewer {
         let maxNet = -1;
 
         for (let lid = 0; lid < L_COUNT; lid++) {
-            const start = layerOffsets[lid] * 5;
-            const end = layerOffsets[lid+1] * 5;
+            const start = layerOffsets[lid] * 6;
+            const end = layerOffsets[lid+1] * 6;
             if (start === end) continue;
             
             const data = rectData.subarray(start, end);
@@ -562,11 +582,11 @@ export class CircuitViewer {
             gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
             gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
             
-            this.layers[lid] = { count: data.length / 5, buffer: buffer, visible: true };
+            this.layers[lid] = { count: data.length / 6, buffer: buffer, visible: true };
             this.sortedLids.push(String(lid));
             
-            for (let i = 0; i < data.length; i += 5) {
-                const x1 = data[i], y1 = data[i+1], x2 = data[i+2], y2 = data[i+3], net = data[i+4];
+            for (let i = 0; i < data.length; i += 6) {
+                const x1 = data[i], y1 = data[i+1], x2 = data[i+2], y2 = data[i+3], net = data[i+4], tree = data[i+5];
                 if (x1 < this.bounds.minX) this.bounds.minX = x1;
                 if (y1 < this.bounds.minY) this.bounds.minY = y1;
                 if (x2 > this.bounds.maxX) this.bounds.maxX = x2;
@@ -576,6 +596,11 @@ export class CircuitViewer {
                     if (net > maxNet) maxNet = net;
                     const area = Math.abs((x2 - x1) * (y2 - y1));
                     this.netAreas[net] = (this.netAreas[net] || 0) + area;
+                    if (tree !== -1) {
+                        this.treeAreas[tree] = (this.treeAreas[tree] || 0) + area;
+                        if (!this.treeToNets[tree]) this.treeToNets[tree] = new Set();
+                        this.treeToNets[tree].add(net);
+                    }
                 }
             }
         }

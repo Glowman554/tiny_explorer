@@ -2,6 +2,7 @@ export class Animator {
     constructor() {
         this.waypoints = [];
         this.isPlaying = false;
+        this.isLooping = false;
         this.currentTime = 0;
         this.totalDuration = 0;
         
@@ -25,9 +26,10 @@ export class Animator {
         this.stop();
     }
 
-    play() {
+    play(loop = false) {
         if (this.waypoints.length < 2) return;
         this.isPlaying = true;
+        this.isLooping = loop;
         this.currentTime = 0;
     }
 
@@ -48,9 +50,13 @@ export class Animator {
         this.currentTime += dt;
 
         if (this.currentTime >= this.totalDuration) {
-            this.currentTime = this.totalDuration;
-            this.isPlaying = false; // Stop at the end
-            this.applyWaypoint(this.waypoints.length - 1, targetState);
+            if (this.isLooping && this.totalDuration > 0) {
+                this.currentTime %= this.totalDuration;
+            } else {
+                this.currentTime = this.totalDuration;
+                this.isPlaying = false; // Stop at the end
+                this.applyWaypoint(this.waypoints.length - 1, targetState);
+            }
             return true; // Still requires one last render
         }
 
