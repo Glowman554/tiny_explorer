@@ -539,7 +539,7 @@ export class CircuitViewer {
         this.onLog?.(msg);
     }
 
-    async loadGDS(url, pdk) {
+    async loadGDS(url, pdk, originalFilename = null) {
         this.currentUrl = url;
         this.vgaRunning = false;
         if (this.vgaInterval) {
@@ -595,7 +595,7 @@ export class CircuitViewer {
         };
 
         const normalizedUrl = new URL(url, window.location.href).href;
-        this.worker.postMessage({ type: "start", gdsUrl: normalizedUrl, pdk: pdk });
+        this.worker.postMessage({ type: "start", gdsUrl: normalizedUrl, pdk: pdk, options: { filename: originalFilename } });
     }
 
     // MARK: GDS Data Processing

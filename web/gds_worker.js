@@ -59,7 +59,8 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
     logBuffer = "";
     const { returnGeometry = true } = options;
     
-    const urlPath = gdsUrl.toLowerCase().split(/[?#]/)[0];
+    const targetUrl = options.filename || gdsUrl;
+    const urlPath = targetUrl.toLowerCase().split(/[?#]/)[0];
     const isBrotli = urlPath.endsWith('.br');
     const isGzip = urlPath.endsWith('.gz');
     
