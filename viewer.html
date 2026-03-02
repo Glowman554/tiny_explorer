@@ -5,13 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GDS Rect Viewer</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #111; color: #eee; font-family: sans-serif; }
+        :root {
+            --bg-dark: #111;
+            --text-main: #eee;
+            --text-muted: #aaa;
+            --text-dim: #888;
+            --border-color: #444;
+            --accent-green: #0f0;
+            --panel-bg: rgba(0, 0, 0, 0.85);
+            --input-bg: #1a1a1a;
+            --btn-bg: #2a2a2a;
+            --track-bg: #333;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+
+        body { margin: 0; overflow: hidden; background: var(--bg-dark); color: var(--text-main); font-family: sans-serif; }
         canvas { display: block; width: 100vw; height: 100vh; }
         
         .panel {
             position: absolute;
-            background: rgba(0, 0, 0, 0.85);
-            border: 1px solid #444;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 12px;
             pointer-events: auto;
@@ -24,10 +38,10 @@
         .panel-header {
             font-weight: bold;
             font-size: 14px;
-            color: #0f0;
+            color: var(--accent-green);
             cursor: grab;
             padding-bottom: 8px;
-            border-bottom: 1px solid #444;
+            border-bottom: 1px solid var(--border-color);
             margin-bottom: 10px;
             display: flex;
             justify-content: space-between;
@@ -40,6 +54,10 @@
         .panel-header:active {
             cursor: grabbing;
         }
+
+        /* Utility classes for JS state updates */
+        .btn-active { color: var(--accent-green) !important; border-color: var(--accent-green) !important; }
+        .btn-inactive { color: var(--text-dim) !important; border-color: var(--border-color) !important; }
 
         #ui { top: 45px; left: 10px; width: 220px; max-height: calc(90vh - 35px); }
 
@@ -383,8 +401,8 @@
                 <span id="close-logPanel" style="padding:0 4px; background:#400; border-radius:2px; border:1px solid #600;">×</span>
             </div>
         </div>
-        <div class="panel-content" style="max-height: 250px;">
-            <pre id="logContainer"></pre>
+        <div class="panel-content" style="max-height: 250px; overflow-x: auto;">
+            <pre id="logContainer" style="margin: 0; padding-bottom: 5px;"></pre>
         </div>
     </div>
 

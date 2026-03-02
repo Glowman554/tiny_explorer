@@ -1,4 +1,5 @@
 import { LAYER_CONFIG } from './circuit_viewer.js';
+import { makeDraggable } from './draggable.js';
 
 /**
  * UI Glue Logic - Keeps the Viewer class pure but maintains functionality
@@ -25,8 +26,8 @@ export function initViewerUI(viewer) {
         panel._isVisible = defaultVisible;
         const update = () => {
             panel.style.display = panel._isVisible ? 'flex' : 'none';
-            btn.style.color = panel._isVisible ? '#0f0' : '#888';
-            btn.style.borderColor = panel._isVisible ? '#0f0' : '#444';
+            btn.classList.toggle('btn-active', panel._isVisible);
+            btn.classList.toggle('btn-inactive', !panel._isVisible);
         };
         btn.onclick = () => {
             panel._isVisible = !panel._isVisible;
@@ -46,8 +47,8 @@ export function initViewerUI(viewer) {
         if (btn && panel && !panel._isVisible) {
             panel._isVisible = true;
             panel.style.display = 'flex';
-            btn.style.color = '#0f0';
-            btn.style.borderColor = '#0f0';
+            btn.classList.add('btn-active');
+            btn.classList.remove('btn-inactive');
         }
     };
     
@@ -57,8 +58,8 @@ export function initViewerUI(viewer) {
         if (btn && panel && panel._isVisible) {
             panel._isVisible = false;
             panel.style.display = 'none';
-            btn.style.color = '#888';
-            btn.style.borderColor = '#444';
+            btn.classList.add('btn-inactive');
+            btn.classList.remove('btn-active');
         }
     };
 
@@ -92,11 +93,11 @@ export function initViewerUI(viewer) {
         }
         
         if (scale === 0.5) {
-            if (btnScale05) btnScale05.style.color = '#0f0';
-            if (btnScale10) btnScale10.style.color = '#888';
+            if (btnScale05) { btnScale05.classList.add('btn-active'); btnScale05.classList.remove('btn-inactive'); }
+            if (btnScale10) { btnScale10.classList.add('btn-inactive'); btnScale10.classList.remove('btn-active'); }
         } else {
-            if (btnScale05) btnScale05.style.color = '#888';
-            if (btnScale10) btnScale10.style.color = '#0f0';
+            if (btnScale05) { btnScale05.classList.add('btn-inactive'); btnScale05.classList.remove('btn-active'); }
+            if (btnScale10) { btnScale10.classList.add('btn-active'); btnScale10.classList.remove('btn-inactive'); }
         }
     };
     
@@ -108,65 +109,6 @@ export function initViewerUI(viewer) {
 
 
     // MARK: Panel Draggability
-    let highestZIndex = 100;
-    const bringToFront = (panel) => {
-        highestZIndex++;
-        panel.style.zIndex = highestZIndex;
-    };
-
-    const makeDraggable = (panelId) => {
-        const panel = doc(panelId);
-        if (!panel) return;
-        
-        panel.addEventListener('mousedown', () => bringToFront(panel));
-
-        const header = panel.querySelector('.panel-header');
-        if (!header) return;
-
-        let isDragging = false;
-        let startX, startY;
-        let currentX, currentY;
-
-        header.addEventListener('mousedown', (e) => {
-            if (e.button !== 0) return; // Only left click
-            isDragging = true;
-            
-            const rect = panel.getBoundingClientRect();
-            
-            // Clear right/bottom CSS constraints if set, replacing with explicit left/top
-            if (panel.style.right !== '' || !panel.style.left) {
-                panel.style.left = rect.left + 'px';
-                panel.style.right = 'auto';
-            }
-            if (panel.style.bottom !== '' || !panel.style.top) {
-                panel.style.top = rect.top + 'px';
-                panel.style.bottom = 'auto';
-            }
-            
-            currentX = parseFloat(panel.style.left) || rect.left;
-            currentY = parseFloat(panel.style.top) || rect.top;
-            startX = e.clientX;
-            startY = e.clientY;
-            
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-            e.preventDefault();
-        });
-
-        const onMouseMove = (e) => {
-            if (!isDragging) return;
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            panel.style.left = (currentX + dx) + 'px';
-            panel.style.top = (currentY + dy) + 'px';
-        };
-
-        const onMouseUp = () => {
-            isDragging = false;
-            document.removeEventListener('mousemove', onMouseMove);
-            document.removeEventListener('mouseup', onMouseUp);
-        };
-    };
 
     makeDraggable('ui');
     makeDraggable('circuitMonitor');
@@ -205,120 +147,23 @@ export function initViewerUI(viewer) {
         }, 2000);
     };
 
+    // Initialize sub-controllers
+    bindViewControls(viewer);
+    bindSimulationControls(viewer);
+    bindAnimationControls(viewer);
+    bindTreeInspectorUI(viewer);
+    bindKeyboardHotkeys(viewer);
+    // The worker now drives VGA updates and ray properties, remove UI driving
     viewer.onUpdateCircuit = (wireData) => {
         updateCircuitMonitorState(viewer, wireData);
     };
 
-    viewer.onVgaFrame = (buffer, width, height) => {
-        updateVgaMonitor(viewer, buffer, width, height);
-    };
-
-    // Toggle logic for all panels has been moved to top menu
-
-    // Event listeners for viewer state
-    // MARK: View Controls
-    if (alphaSlider) alphaSlider.oninput = () => {
-        viewer.view.globalAlpha = parseFloat(alphaSlider.value);
-        viewer.requestFrame();
-    };
-    if (boundaryToggle) boundaryToggle.onchange = () => {
-        viewer.view.showBoundaries = boundaryToggle.checked;
-        viewer.requestFrame();
-    };
-    const perspSlider = doc('perspSlider');
-    if (perspSlider) perspSlider.oninput = () => {
-        viewer.view.perspective = parseFloat(perspSlider.value);
-        viewer.requestFrame();
-    };
-    const explodeSlider = doc('explodeSlider');
-    if (explodeSlider) explodeSlider.oninput = () => {
-        viewer.view.explode = parseFloat(explodeSlider.value);
-        viewer.requestFrame();
-    };
-    if (powerNetToggle) powerNetToggle.onchange = () => {
-        viewer.view.showPowerNets = powerNetToggle.checked;
-        viewer.requestFrame();
-    };
-    const stateMixSlider = doc('stateMixSlider');
-    if (stateMixSlider) stateMixSlider.oninput = () => {
-        viewer.view.stateMix = parseFloat(stateMixSlider.value);
-        viewer.requestFrame();
-    };
-    const renderModeSelect = doc('renderModeSelect');
-    if (renderModeSelect) renderModeSelect.onchange = () => {
-        viewer.setRenderMode(renderModeSelect.value);
-    };
-
-    // MARK: Simulation Controls
-    const simSpeed = doc('simSpeed');
-    const simSpeedLabel = doc('simSpeedLabel');
-    const autoClockToggle = doc('autoClockToggle');
-    const btnPlayPause = doc('btnPlayPause');
-
-    let isPaused = true;
-
-    const updateSimConfig = () => {
-        if (!viewer.isLoaded) return;
-        const speedVal = parseInt(simSpeed.value, 10);
-        const autoClk = autoClockToggle.checked;
-        const speed = isPaused ? 0 : speedVal;
-        
-        if (isPaused) {
-            if (btnPlayPause) {
-                btnPlayPause.innerText = '▶';
-                btnPlayPause.style.color = '#aa0';
-            }
-            if (simSpeedLabel) {
-                simSpeedLabel.innerText = 'PAUSED';
-                simSpeedLabel.style.color = '#aa0';
-            }
-        } else {
-            if (btnPlayPause) {
-                btnPlayPause.innerText = '⏸';
-                btnPlayPause.style.color = '#0f0';
-            }
-            if (simSpeedLabel) {
-                simSpeedLabel.style.color = '#0f0';
-                if (speedVal === 100) simSpeedLabel.innerText = 'MAX';
-                else simSpeedLabel.innerText = `${speedVal}%`;
-            }
-        }
-        
-        viewer.setSimConfig(speed, isPaused ? false : autoClk);
-    };
-
-    if (btnPlayPause) {
-        btnPlayPause.onclick = () => {
-            isPaused = !isPaused;
-            if (!isPaused && stateMixSlider) {
-                stateMixSlider.value = 0.75;
-                viewer.view.stateMix = 0.75;
-                viewer.requestFrame();
-            }
-            updateSimConfig();
-        };
-    }
-
-    if (simSpeed) simSpeed.oninput = () => {
-        if (isPaused) {
-            isPaused = false;
-            if (stateMixSlider) {
-                stateMixSlider.value = 0.75;
-                viewer.view.stateMix = 0.75;
-                viewer.requestFrame();
-            }
-        }
-        updateSimConfig();
-    };
-    if (autoClockToggle) autoClockToggle.onchange = updateSimConfig;
-    
-    // The worker now drives VGA updates and ray properties, remove UI driving
     viewer.onVgaFrame = (buffer, width, height, rayX, rayY) => {
         updateVgaMonitor(viewer, buffer, width, height, rayX, rayY);
         const rayLabel = document.getElementById('vgaRayPos');
         if (rayLabel) rayLabel.innerText = `Ray: X:${rayX} Y:${rayY}`;
     };
-
+    
     if (doc('btnReset')) doc('btnReset').onclick = () => viewer.resetView();
     if (doc('btnDownload')) doc('btnDownload').onclick = async () => {
         if (!viewer.currentUrl) return;
@@ -349,6 +194,187 @@ export function initViewerUI(viewer) {
     if (layerMinIdx) layerMinIdx.oninput = () => rebuildLayerUI(viewer);
     const layerMaxIdx = doc('layerMaxIdx');
     if (layerMaxIdx) layerMaxIdx.oninput = () => rebuildLayerUI(viewer);
+
+}
+
+// MARK: - Sub-Controllers
+
+export function bindViewControls(viewer) {
+    const doc = (id) => document.getElementById(id);
+    const alphaSlider = doc('alphaSlider');
+    const boundaryToggle = doc('boundaryToggle');
+    const perspSlider = doc('perspSlider');
+    const explodeSlider = doc('explodeSlider');
+    const powerNetToggle = doc('powerNetToggle');
+    const stateMixSlider = doc('stateMixSlider');
+    const renderModeSelect = doc('renderModeSelect');
+
+    if (alphaSlider) alphaSlider.oninput = () => {
+        viewer.view.globalAlpha = parseFloat(alphaSlider.value);
+        viewer.requestFrame();
+    };
+    if (boundaryToggle) boundaryToggle.onchange = () => {
+        viewer.view.showBoundaries = boundaryToggle.checked;
+        viewer.requestFrame();
+    };
+    if (perspSlider) perspSlider.oninput = () => {
+        viewer.view.perspective = parseFloat(perspSlider.value);
+        viewer.requestFrame();
+    };
+    if (explodeSlider) explodeSlider.oninput = () => {
+        viewer.view.explode = parseFloat(explodeSlider.value);
+        viewer.requestFrame();
+    };
+    if (powerNetToggle) powerNetToggle.onchange = () => {
+        viewer.view.showPowerNets = powerNetToggle.checked;
+        viewer.requestFrame();
+    };
+    if (stateMixSlider) stateMixSlider.oninput = () => {
+        viewer.view.stateMix = parseFloat(stateMixSlider.value);
+        viewer.requestFrame();
+    };
+    if (renderModeSelect) renderModeSelect.onchange = () => {
+        viewer.setRenderMode(renderModeSelect.value);
+    };
+}
+
+export function bindAnimationControls(viewer) {
+    const doc = (id) => document.getElementById(id);
+    const btnCaptWp = doc('btnCaptWp');
+    const btnClearWp = doc('btnClearWp');
+    const btnPlayAnim = doc('btnPlayAnim');
+    const animTime = doc('animTime');
+    const wpList = doc('wpList');
+
+    if (btnCaptWp && viewer.animator) {
+        btnCaptWp.onclick = () => {
+            if (animTime) {
+                viewer.animator.defaultTransitionTime = parseFloat(animTime.value);
+            }
+            viewer.animator.addWaypoint(viewer);
+            updateWaypointListUI(viewer.animator, wpList);
+        };
+    }
+
+    if (btnClearWp && viewer.animator) {
+        btnClearWp.onclick = () => {
+            viewer.animator.clearWaypoints();
+            if (btnPlayAnim) {
+                btnPlayAnim.innerText = 'Play Sequence';
+                // Note: Consider extracting this color code (#284) to CSS in the future
+                btnPlayAnim.style.background = '#284';
+            }
+            updateWaypointListUI(viewer.animator, wpList);
+        };
+    }
+
+    if (btnPlayAnim && viewer.animator) {
+        btnPlayAnim.onclick = () => {
+            if (viewer.animator.isPlaying) {
+                viewer.animator.stop();
+                btnPlayAnim.innerText = 'Play Sequence';
+                btnPlayAnim.style.background = '#284';
+                viewer.requestFrame();
+            } else {
+                if (viewer.animator.waypoints.length > 1) {
+                    const duration = animTime ? parseFloat(animTime.value) : 2.0;
+                    viewer.animator.play(true, duration); // Auto-loop continuously
+                    btnPlayAnim.innerText = 'Stop Sequence';
+                    btnPlayAnim.style.background = '#822';
+                    viewer.requestFrame();
+                }
+            }
+        };
+    }
+}
+
+export function bindSimulationControls(viewer) {
+    const doc = (id) => document.getElementById(id);
+    const simSpeed = doc('simSpeed');
+    const simSpeedLabel = doc('simSpeedLabel');
+    const autoClockToggle = doc('autoClockToggle');
+    const btnPlayPause = doc('btnPlayPause');
+    const stateMixSlider = doc('stateMixSlider');
+
+    // UI Local State
+    let isPaused = true;
+
+    const updateSimConfig = () => {
+        if (!viewer.isLoaded) return;
+        const speedVal = simSpeed ? parseInt(simSpeed.value, 10) : 50;
+        const autoClk = autoClockToggle ? autoClockToggle.checked : false;
+        const speed = isPaused ? 0 : speedVal;
+        
+        // CSS classes instead of inline properties
+        if (isPaused) {
+            if (btnPlayPause) {
+                btnPlayPause.innerText = '▶';
+                btnPlayPause.classList.add('btn-inactive');
+                btnPlayPause.classList.remove('btn-active');
+            }
+            if (simSpeedLabel) {
+                simSpeedLabel.innerText = 'PAUSED';
+                simSpeedLabel.classList.add('btn-inactive');
+                simSpeedLabel.classList.remove('btn-active');
+            }
+        } else {
+            if (btnPlayPause) {
+                btnPlayPause.innerText = '⏸';
+                btnPlayPause.classList.add('btn-active');
+                btnPlayPause.classList.remove('btn-inactive');
+            }
+            if (simSpeedLabel) {
+                simSpeedLabel.classList.add('btn-active');
+                simSpeedLabel.classList.remove('btn-inactive');
+                if (speedVal === 100) simSpeedLabel.innerText = 'MAX';
+                else simSpeedLabel.innerText = `${speedVal}%`;
+            }
+        }
+        
+        viewer.setSimConfig(speed, isPaused ? false : autoClk);
+    };
+
+    if (btnPlayPause) {
+        btnPlayPause.onclick = () => {
+            isPaused = !isPaused;
+            if (!isPaused && stateMixSlider) {
+                stateMixSlider.value = 0.75;
+                viewer.view.stateMix = 0.75;
+                viewer.requestFrame();
+            }
+            updateSimConfig();
+        };
+    }
+
+    if (simSpeed) {
+        simSpeed.oninput = () => {
+            if (isPaused) {
+                isPaused = false;
+                if (stateMixSlider) {
+                    stateMixSlider.value = 0.75;
+                    viewer.view.stateMix = 0.75;
+                    viewer.requestFrame();
+                }
+            }
+            updateSimConfig();
+        };
+    }
+    
+    if (autoClockToggle) {
+        autoClockToggle.onchange = updateSimConfig;
+    }
+
+    // Initialize state
+    updateSimConfig();
+}
+
+export function bindTreeInspectorUI(viewer) {
+    const doc = (id) => document.getElementById(id);
+    const treeSearch = doc('treeSearch');
+    const treeSelect = doc('treeSelect');
+    const treeIdList = doc('treeIdList');
+    const btnHighlightIds = doc('btnHighlightIds');
+    const btnClearTrees = doc('btnClearTrees');
 
     if (treeSearch) {
         treeSearch.oninput = () => updateTreeListUI(viewer);
@@ -392,64 +418,22 @@ export function initViewerUI(viewer) {
         };
     }
 
-    // Animator Integrations
-    // MARK: Animation Controls
-    const btnCaptWp = doc('btnCaptWp');
-    const btnClearWp = doc('btnClearWp');
-    const btnPlayAnim = doc('btnPlayAnim');
-    const animTime = doc('animTime');
-    const wpList = doc('wpList');
-
-    if (btnCaptWp && viewer.animator) {
-        btnCaptWp.onclick = () => {
-            if (animTime) {
-                viewer.animator.defaultTransitionTime = parseFloat(animTime.value);
-            }
-            viewer.animator.addWaypoint(viewer);
-            updateWaypointListUI(viewer.animator, wpList);
+    if (btnClearTrees) {
+        btnClearTrees.onclick = () => {
+            if (treeSelect) treeSelect.selectedIndex = -1;
+            if (treeSearch) treeSearch.value = '';
+            if (treeIdList) treeIdList.value = '';
+            viewer.syncSelectedNets([]);
+            updateTreeListUI(viewer);
         };
     }
+}
 
-    if (btnClearWp && viewer.animator) {
-        btnClearWp.onclick = () => {
-            viewer.animator.clearWaypoints();
-            if (btnPlayAnim) {
-                btnPlayAnim.innerText = 'Play Sequence';
-                btnPlayAnim.style.background = '#284';
-            }
-            updateWaypointListUI(viewer.animator, wpList);
-        };
-    }
-
-    if (btnPlayAnim && viewer.animator) {
-        btnPlayAnim.onclick = () => {
-            if (viewer.animator.isPlaying) {
-                viewer.animator.stop();
-                btnPlayAnim.innerText = 'Play Sequence';
-                btnPlayAnim.style.background = '#284';
-                viewer.requestFrame();
-            } else {
-                if (viewer.animator.waypoints.length > 1) {
-                    const duration = animTime ? parseFloat(animTime.value) : 2.0;
-                    viewer.animator.play(true, duration); // Auto-loop continuously
-                    btnPlayAnim.innerText = 'Stop Sequence';
-                    btnPlayAnim.style.background = '#822';
-                    viewer.requestFrame();
-                }
-            }
-        };
-    }
-
-    if (doc('btnClearTrees')) doc('btnClearTrees').onclick = () => {
-        if (treeSelect) treeSelect.selectedIndex = -1;
-        if (treeSearch) treeSearch.value = '';
-        if (treeIdList) treeIdList.value = '';
-        viewer.syncSelectedNets([]);
-        updateTreeListUI(viewer);
-    };
-
-    // MARK: Keyboard Integrations
+export function bindKeyboardHotkeys(viewer) {
     window.addEventListener('keydown', (e) => {
+        const treeSelect = document.getElementById('treeSelect');
+        const btnPlayAnim = document.getElementById('btnPlayAnim');
+
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             const dir = e.key === 'ArrowDown' ? 1 : -1;
             if (viewer.soloLayerId !== null) {
@@ -464,6 +448,8 @@ export function initViewerUI(viewer) {
             viewer.setSoloLayer(null);
             rebuildLayerUI(viewer);
         }
+        
+        // Don't trigger hotkeys if the user is typing in a field
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
 
         if (e.key.toLowerCase() === 'c') {
@@ -480,8 +466,6 @@ export function initViewerUI(viewer) {
             if (btnPlayAnim) btnPlayAnim.click();
         }
     });
-
-    updateSimConfig();
 }
 
 // MARK: - Tree Hierarchy UI
