@@ -4,6 +4,7 @@
  * Integrates brotli-dec-wasm for .gds.br support.
  */
 
+// MARK: - Imports & Globals
 import brotliInit, { DecompressStream, BrotliStreamResultCode } from '../vendor/brotli_dec_wasm.js';
 import { WASI, File, PreopenDirectory, Fd, ConsoleStdout } from '../vendor/browser_wasi_shim.js';
 
@@ -14,8 +15,16 @@ function log(msg) {
     postMessage({ type: 'log', message: msg });
 }
 
+let clkNetId = -1;
+let simRunning = false;
+let simSpeed = 0;
+let autoClock = false;
+let lastSimUpdate = 0;
+let lastClkVal = 0;
+
 const files = new Map();
 
+// MARK: - WASM Memory Utilities
 function allocString(str, instance) {
     const bytes = new TextEncoder().encode(str);
     const ptr = instance.exports.wasm_malloc(bytes.length + 1);
@@ -45,6 +54,7 @@ function getWireNames() {
     return labeled;
 }
 
+// MARK: - GDS Processing
 async function runGdsTask(gdsUrl, pdk, options = {}) {
     logBuffer = "";
     const { returnGeometry = true } = options;
@@ -141,7 +151,9 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
             netlistWires: parseInt(logBuffer.match(/Wires: (\d+)/)?.[1] || 0),
             netlistFETs: parseInt(logBuffer.match(/FETs: (\d+)/)?.[1] || 0),
             warnings: (logBuffer.match(/Warning:/g) || []).length,
-            errors: (logBuffer.match(/Error:/g) || []).length
+            errors: (logBuffer.match(/Error:/g) || []).length,
+            vgaWidth: instance.exports.wasm_vga_width ? instance.exports.wasm_vga_width() : 0,
+            vgaHeight: instance.exports.wasm_vga_height ? instance.exports.wasm_vga_height() : 0
         };
 
         const transferables = [];
@@ -167,6 +179,10 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
         }
 
         const wireNames = getWireNames();
+        wireNames.forEach(w => {
+            if (/^clk$/i.test(w.name)) clkNetId = w.id;
+        });
+
         postMessage({ type: 'done', stats, file: gdsUrl, pdk, wireNames }, transferables);
 
     } catch (err) {
@@ -174,6 +190,7 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
     }
 }
 
+// MARK: - Worker Message Loop
 onmessage = function(e) {
     if (e.data.type === 'start') {
         runGdsTask(e.data.gdsUrl, e.data.pdk, e.data.options || {});
@@ -191,25 +208,153 @@ onmessage = function(e) {
         
         if (returnArrays) {
             returnArrays.forEach(arrName => {
-                if (arrName === 'wireData') {
-                    const ptr = instance.exports.wasm_wireData_ptr();
-                    const count = instance.exports.wasm_wireData_size();
+                const getPtr = instance.exports[`wasm_${arrName}_ptr`];
+                const getSize = instance.exports[`wasm_${arrName}_size`];
+                if (getPtr && getSize) {
+                    const ptr = getPtr();
                     if (ptr) {
+                        const count = getSize();
                         const data = new Uint8Array(instance.exports.memory.buffer, ptr, count).slice();
-                        payload.wireData = data;
-                        transferables.push(data.buffer);
-                    }
-                } else if (arrName === 'vga_buffer') {
-                    const ptr = instance.exports.wasm_vga_buffer_ptr();
-                    const count = instance.exports.wasm_vga_buffer_size();
-                    if (ptr) {
-                        const data = new Uint8Array(instance.exports.memory.buffer, ptr, count).slice();
-                        payload.vga_buffer = data;
+                        payload[arrName] = data;
                         transferables.push(data.buffer);
                     }
                 }
             });
         }
         postMessage(payload, transferables);
+    } else if (e.data.type === 'sim_config') {
+        const { speed, autoClock: autoClk } = e.data;
+        simSpeed = speed;
+        autoClock = autoClk;
+        
+        const shouldRun = simSpeed > 0 || autoClock;
+        if (shouldRun && !simRunning) {
+            simRunning = true;
+            lastSimLoopTime = performance.now();
+            waveAccumulator = 0;
+            scheduleNext(simLoop);
+        } else if (!shouldRun) {
+            simRunning = false;
+        }
+    } else if (e.data.type === 'ack_request') {
+        postMessage({ type: 'ack_response' });
     }
 };
+
+// MARK: - Simulation Subsystem
+let waveAccumulator = 0;
+let lastSimLoopTime = 0;
+
+function scheduleNext(cb) {
+    if (typeof requestAnimationFrame !== 'undefined') {
+        requestAnimationFrame(cb);
+    } else {
+        setTimeout(cb, 0);
+    }
+}
+
+function getNetValue(netId) {
+    if (netId === -1 || !instance?.exports?.wasm_wireData_ptr) return 0;
+    const wireData = new Uint8Array(instance.exports.memory.buffer, instance.exports.wasm_wireData_ptr(), instance.exports.wasm_wireData_size());
+    return wireData[netId] & 1;
+}
+
+function checkClockEdge() {
+    const clkVal = getNetValue(clkNetId);
+    if (clkVal === 1 && lastClkVal === 0) {
+        if (instance.exports.wasm_vga_tick) instance.exports.wasm_vga_tick(1);
+    }
+    lastClkVal = clkVal;
+}
+
+function sendSimUpdate() {
+    const payload = { type: 'simUpdate' };
+    const transferables = [];
+    
+    if (instance.exports.wasm_wireData_ptr) {
+        const data = new Uint8Array(instance.exports.memory.buffer, instance.exports.wasm_wireData_ptr(), instance.exports.wasm_wireData_size()).slice();
+        payload.wireData = data;
+        transferables.push(data.buffer);
+    }
+    
+    if (instance.exports.wasm_vga_buffer_ptr) {
+        const vgaPtr = instance.exports.wasm_vga_buffer_ptr();
+        if (vgaPtr) {
+            const data = new Uint8Array(instance.exports.memory.buffer, vgaPtr, instance.exports.wasm_vga_buffer_size()).slice();
+            payload.vga_buffer = data;
+            transferables.push(data.buffer);
+        }
+        payload.rayX = instance.exports.wasm_vga_ray_x ? instance.exports.wasm_vga_ray_x() : 0;
+        payload.rayY = instance.exports.wasm_vga_ray_y ? instance.exports.wasm_vga_ray_y() : 0;
+    }
+    
+    postMessage(payload, transferables);
+    lastSimUpdate = performance.now();
+}
+
+function simLoop() {
+    if (!simRunning) return;
+    
+    if (!instance || !instance.exports.wasm_circuit_is_settled) {
+        scheduleNext(simLoop);
+        return;
+    }
+
+    const now = performance.now();
+    const isMax = simSpeed === 100;
+    const timeLimit = isMax ? (now + 14) : (now + 2); // Spend up to 14ms (max) or 2ms (throttled)
+    
+    let iterCount = 0;
+    
+    if (isMax) {
+        iterCount = 100000;
+    } else if (simSpeed > 0) {
+        // Clamp delta to prevent massive jumps if tab was sleeping
+        const delta = Math.min(now - lastSimLoopTime, 100);
+        
+        // Logarithmic scale so speed=1 => 1 wps, speed=99 => 10000 wps
+        const targetWavesPerSec = Math.pow(10, ((simSpeed - 1) / 98) * 4);
+        waveAccumulator += (delta / 1000.0) * targetWavesPerSec;
+        
+        iterCount = Math.floor(waveAccumulator);
+        if (iterCount > 0) {
+            waveAccumulator -= iterCount;
+        }
+    } else if (autoClock) {
+        // Speed slider is 0 (Paused) but autoClock is manually on
+        // Leave logic iterCount at 0 so only clock edges run
+        iterCount = 0;
+    }
+    
+    lastSimLoopTime = now;
+
+    let didWork = false;
+
+    while (iterCount > 0 && performance.now() < timeLimit) {
+        let isSettled = instance.exports.wasm_circuit_is_settled();
+        
+        if (!isSettled) {
+            instance.exports.wasm_circuit_run_wave();
+            checkClockEdge();
+            didWork = true;
+            iterCount--;
+        } else if (autoClock && clkNetId !== -1) {
+            const val = getNetValue(clkNetId);
+            instance.exports.wasm_circuit_set_input(clkNetId, val ? 0 : 1);
+            checkClockEdge();
+            didWork = true;
+            iterCount--;
+        } else {
+            break; // Settled and no edge to trigger
+        }
+    }
+    
+    if (didWork || (now - lastSimUpdate) > 100) {
+        // limit UI updates to ~60fps (16ms)
+        if ((now - lastSimUpdate) >= 16) {
+            sendSimUpdate();
+        }
+    }
+    
+    scheduleNext(simLoop);
+}

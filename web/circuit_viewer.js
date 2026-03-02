@@ -4,6 +4,7 @@ import { Animator } from './animator.js';
  * CircuitViewer - A WebGL-based GDS/OASIS geometry and netlist viewer.
  */
 
+// MARK: - WebGL Shaders
 export const VS_SOURCE = `#version 300 es
     in vec3 a_pos;       // Box vertex position (0..1)
     in ivec4 a_rect;     // Rect: x1, y1, x2, y2
@@ -128,6 +129,7 @@ export const FS_SOURCE = `#version 300 es
     }
 `;
 
+// MARK: - Core Configuration
 const h_met=200, h_via=500;
 let _z = 0, _h = 0;
 export const LAYER_CONFIG = [
@@ -155,6 +157,7 @@ export const LAYER_CONFIG = [
     isExempt: l.name.toUpperCase().endsWith("TERM") || l.name.toUpperCase() === "LICON"
 }));
 
+// MARK: - CircuitViewer Main Class
 export class CircuitViewer {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -204,10 +207,16 @@ export class CircuitViewer {
         this.onVgaFrame = null;
 
         this.vga = { width: 0, height: 0, buffer: null };
+        this.simSpeed = 0;
+        this.autoClock = false;
+        this.simInputPauseActive = false;
+        this.pendingInputs = [];
+        this.workerAckResolve = null;
 
         this.init();
     }
 
+    // MARK: Initialization
     init() {
         this.gl = this.canvas.getContext('webgl2', { alpha: true, antialias: true });
         this.program = null;
@@ -532,6 +541,8 @@ export class CircuitViewer {
                 this.log("ERROR: " + data.message);
                 this.onProgress?.("Error: " + data.message);
             } else if (data.type === "done") {
+                if (data.stats.vgaWidth) this.vga.width = data.stats.vgaWidth;
+                if (data.stats.vgaHeight) this.vga.height = data.stats.vgaHeight;
                 this.processParsedData(data.stats, data.wireNames);
             } else if (data.type === "callResult") {
                 if (data.name === "wasm_vga_width") this.vga.width = data.result;
@@ -543,7 +554,23 @@ export class CircuitViewer {
                 }
                 if (data.vga_buffer) {
                     this.vga.buffer = data.vga_buffer;
-                    this.onVgaFrame?.(data.vga_buffer, this.vga.width, this.vga.height);
+                    // Ray positions are now passed in data.stats or data directly from worker
+                }
+            } else if (data.type === 'simUpdate') {
+                if (this.simInputPauseActive) return; // Drop stale incoming frames while freezing for input manipulation
+                
+                if (data.wireData) {
+                    this.updateNetStatesFromWireData(data.wireData);
+                    this.onUpdateCircuit?.(data.wireData);
+                }
+                if (data.vga_buffer) {
+                    this.vga.buffer = data.vga_buffer;
+                    this.onVgaFrame?.(data.vga_buffer, this.vga.width, this.vga.height, data.rayX, data.rayY);
+                }
+            } else if (data.type === 'ack_response') {
+                if (this.workerAckResolve) {
+                    this.workerAckResolve();
+                    this.workerAckResolve = null;
                 }
             }
         };
@@ -552,6 +579,7 @@ export class CircuitViewer {
         this.worker.postMessage({ type: "start", gdsUrl: normalizedUrl, pdk: pdk });
     }
 
+    // MARK: GDS Data Processing
     processParsedData(stats, wireNames) {
         this.wireNames = wireNames || [];
         const { rectData, layerOffsets } = stats;
@@ -673,28 +701,99 @@ export class CircuitViewer {
         this.requestFrame();
     }
 
-    toggleWire(id, currentState) {
-        const newVal = currentState === 1 ? 0 : 1;
-        this.callWasm("wasm_circuit_set_input", [id, newVal], ["wireData"]);
+    // MARK: Simulation Bridge
+    async flushPendingInputs() {
+        if (this.simInputPauseActive || this.pendingInputs.length === 0) return;
+        this.simInputPauseActive = true;
+
+        const isRunning = this.simSpeed > 0 || this.autoClock;
+        
+        if (isRunning) {
+            // Signal pausing execution
+            this.worker.postMessage({ type: 'sim_config', speed: 0, autoClock: false });
+            // Wait till last messages arrive and state is accurately aligned
+            await this.waitForWorkerAck();
+        }
+
+        let updateOccurred = false;
+
+        // Process accumulated toggles
+        while (this.pendingInputs.length > 0) {
+            const inputs = [...this.pendingInputs];
+            this.pendingInputs = [];
+            
+            let latestInputs = {};
+            for (let inp of inputs) {
+                latestInputs[inp.id] = inp.val;
+            }
+
+            for (let idStr in latestInputs) {
+                let id = parseInt(idStr);
+                let val = latestInputs[id];
+                this.callWasm("wasm_circuit_set_input", [id, val], []);
+                updateOccurred = true;
+            }
+        }
+
+        if (updateOccurred) {
+            if (isRunning) {
+                // Ensure inputs are deeply routed
+                await this.waitForWorkerAck();
+            } else {
+                // If paused, comb logic affects others, so we need fresh wireData
+                this.callWasm("wasm_circuit_is_settled", [], ["wireData"]);
+            }
+        }
+
+        if (isRunning) {
+            // Resume execution
+            this.worker.postMessage({ type: 'sim_config', speed: this.simSpeed, autoClock: this.autoClock });
+        }
+
+        this.simInputPauseActive = false;
+        
+        if (this.pendingInputs.length > 0) {
+            this.flushPendingInputs();
+        }
     }
 
-    stepCircuit() {
-        this.callWasm("wasm_circuit_run_wave", [], ["wireData"]);
+    toggleWire(id) {
+        const currentVal = this.netStateData ? (this.netStateData[id] & 1) : 0;
+        const newVal = currentVal === 1 ? 0 : 1;
+        
+        // Optimistic state update immediately
+        if (this.netStateData) {
+            this.netStateData[id] = (this.netStateData[id] & ~1) | newVal;
+            // Add a visual 'flipped' highlight bit (0x40)
+            this.netStateData[id] |= 0x40;
+            this.updateNetStateTexture();
+            this.onUpdateCircuit?.();
+        }
+
+        this.pendingInputs.push({id, val: newVal});
+        this.flushPendingInputs();
+    }
+
+    async waitForWorkerAck() {
+        return new Promise(resolve => {
+            this.workerAckResolve = resolve;
+            this.worker.postMessage({ type: 'ack_request' });
+        });
+    }
+
+    setSimConfig(speed, autoClock) {
+        this.simSpeed = speed;
+        this.autoClock = autoClock;
+        if (!this.worker) return;
+        
+        if (!this.simInputPauseActive) {
+            this.worker.postMessage({ type: 'sim_config', speed, autoClock });
+        }
     }
 
     callWasm(name, args, returnArrays) {
         if (!this.worker) return;
         this.worker.postMessage({ type: "call", name, args, returnArrays });
-    }
-
-    initVga() {
-        this.callWasm("wasm_vga_init", [], []);
-        this.callWasm("wasm_vga_width", [], []);
-        this.callWasm("wasm_vga_height", [], []);
-    }
-
-    vgaTick(n = 1000) {
-        this.callWasm("wasm_vga_tick", [n], ["vga_buffer", "wireData"]);
     }
 
     updateNetStatesFromWireData(wireData) {

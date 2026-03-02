@@ -37,16 +37,19 @@ struct VGASimulator {
     Circuit& circuit;
     
     std::map<std::string, int> name2id;
-    int clk, rst_n, ena;
-    int in_pins[8], out_pins[8];
+    int clk = -1, rst_n = -1, ena = -1;
+    int in_pins[8] = {-1,-1,-1,-1,-1,-1,-1,-1}, out_pins[8] = {-1,-1,-1,-1,-1,-1,-1,-1};
     
     int width = 1000, height = 600;
     int ray_x = 0, ray_y = 0;
     bool last_hsync = false, last_vsync = false;
     std::vector<uint8_t> vga_buffer;
 
-    VGASimulator(Circuit& c, const std::vector<std::pair<int, std::string>>& labels) 
-        : circuit(c) {
+    VGASimulator(Circuit& c) : circuit(c) {
+        vga_buffer.assign(width * height * 3, 0);
+    }
+
+    void init(const std::vector<std::pair<int, std::string>>& labels) {
         for (const auto& [id, name] : labels) {
             name2id[name] = id;
         }
@@ -60,8 +63,6 @@ struct VGASimulator {
             out_pins[i] = getPin("uo_out[" + std::to_string(i) + "]");
             in_pins[i] = getPin("ui_in[" + std::to_string(i) + "]");
         }
-
-        vga_buffer.assign(width * height * 3, 0);
     }
 
     void reset() {
@@ -71,7 +72,11 @@ struct VGASimulator {
         // TT-specific reset behavior
         if (in_pins[1] != -1) circuit.set_signal(in_pins[1], 1);
         if (in_pins[4] != -1) circuit.set_signal(in_pins[4], 1);
-        for (int i = 0; i < 10; ++i) tick();
+        for (int i = 0; i < 10; ++i) {
+            circuit.set_signal(clk, 0); circuit.settle(200);
+            circuit.set_signal(clk, 1); circuit.settle(200);
+            vga_tick();
+        }
         if (in_pins[1] != -1) circuit.set_signal(in_pins[1], 0);
         if (in_pins[4] != -1) circuit.set_signal(in_pins[4], 0);
         circuit.set_signal(rst_n, 1);
@@ -91,7 +96,9 @@ struct VGASimulator {
         printf("Running simulation...\n");
         auto t_start = std::chrono::high_resolution_clock::now();
         for (int i = 0; i < max_ticks; ++i) {
-            tick();
+            circuit.set_signal(clk, 0); circuit.settle(200);
+            circuit.set_signal(clk, 1); circuit.settle(200);
+            vga_tick();
             if ((i + 1) % 10000 == 0) {
                 auto t_now = std::chrono::high_resolution_clock::now();
                 double elapsed = std::chrono::duration<double>(t_now - t_start).count();
@@ -115,9 +122,7 @@ struct VGASimulator {
         circuit.settle(max_waves);
     }
 
-    void tick() {
-        circuit.set_signal(clk, 0); settle();
-        circuit.set_signal(clk, 1); settle();
+    void vga_tick() {
 
         // Sample outputs (assuming TinyTapeout pinout)
         // uo_out[0..2] = R1, G1, B1
@@ -161,9 +166,9 @@ struct VGASimulator {
 struct Module {
     CircuitExtractor extractor;
     Circuit & circuit;
-    VGASimulator* vga = nullptr;
+    VGASimulator vga;
 
-    Module() : circuit(extractor.circuit) {}
+    Module() : circuit(extractor.circuit), vga(circuit) {}
 
 };
 
@@ -233,6 +238,8 @@ extern "C" {
     WASM_EXPORT("wasm_process")
     bool wasm_process() {
         bool res = g_mod()->extractor.process();
+        g_mod()->vga.init(g_mod()->extractor.labeledWires);
+        g_mod()->vga.reset();
         fflush(stdout);
         return res;
     }
@@ -274,28 +281,23 @@ extern "C" {
         return g_mod()->circuit.run_wave();
     }
 
+    WASM_INT_(circuit_is_settled, circuit.dirty_wires.empty());
+
     WASM_EXPORT("wasm_circuit_get_layer_name")
     const char* wasm_circuit_get_layer_name(uint32_t idx) {
         return getLayerName((LayerID)idx);
     }
 
-    WASM_EXPORT("wasm_vga_init")
-    void wasm_vga_init() {
-        if (g_mod()->vga) delete g_mod()->vga;
-        g_mod()->vga = new VGASimulator(g_mod()->circuit, g_mod()->extractor.labeledWires);
-        g_mod()->vga->reset();
-    }
-
     WASM_EXPORT("wasm_vga_tick")
     void wasm_vga_tick(int n) {
-        if (g_mod()->vga) {
-            for (int i=0; i<n; ++i) g_mod()->vga->tick();
-        }
+        for (int i=0; i<n; ++i) g_mod()->vga.vga_tick();
     }
 
-    WASM_ARRAY_(vga_buffer, vga->vga_buffer);
-    WASM_INT_(vga_width, vga->width);
-    WASM_INT_(vga_height, vga->height);
+    WASM_ARRAY_(vga_buffer, vga.vga_buffer);
+    WASM_INT_(vga_width, vga.width);
+    WASM_INT_(vga_height, vga.height);
+    WASM_INT_(vga_ray_x, vga.ray_x);
+    WASM_INT_(vga_ray_y, vga.ray_y);
 
     WASM_INT_(cell_count, extractor.cells.size());
     WASM_INDEXED_STR_(cell_name, extractor.cells, name);
@@ -363,10 +365,10 @@ int main() {
     printf("Total Time : %.2f ms\n", (d_load + d_proc).count());
     printf("Arena usage: %.2f MB\n", (float)wasm_arena_get_usage() / (1024*1024));
 
-    VGASimulator sim(proc.circuit, proc.labeledWires);
-    if (sim.isValid()) {
-        sim.run(380000);
-        //sim.run(100);
+    g_mod()->vga.init(proc.labeledWires);
+    if (g_mod()->vga.isValid()) {
+        g_mod()->vga.run(380000);
+        //g_mod()->vga.run(100);
     } else {
         printf("No VGA pins detected, skipping simulation.\n");
     }

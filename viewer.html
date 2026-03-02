@@ -312,13 +312,15 @@
     <div id="circuitMonitor" class="panel">
         <div class="panel-header">Circuit Monitoring</div>
         <div class="panel-content" id="circuitControls" style="border-bottom: 1px solid #333; padding-bottom: 5px; margin-bottom: 5px; display: none;">
+            <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 5px;">
+                <button id="btnPlayPause" style="margin: 0; padding: 2px 6px; width: 30px; border-radius: 4px; border: 1px solid #444; background: #222; color: #aa0; cursor: pointer; font-family: monospace;">▶</button>
+                <label style="font-size: 10px; color:#ccc; margin-left: 3px;">Speed:</label>
+                <input type="range" id="simSpeed" min="1" max="100" value="1" style="flex: 1;" title="1=Slowest, 100=Max">
+                <span id="simSpeedLabel" style="font-size: 10px; color:#aa0; width: 45px; text-align: right; font-family: monospace;">PAUSED</span>
+            </div>
             <div style="display: flex; gap: 5px; align-items: center;">
-                <button id="btnStepWave" style="background: #284; border-color: #3a5; padding: 4px 10px; flex: 0">Step Wave</button>
-                <div style="display: flex; align-items: center; gap: 5px; flex: 1; justify-content: flex-end;">
-                    <label style="font-size: 10px; color:#ccc;">Auto:</label>
-                    <input type="checkbox" id="autoStepToggle">
-                    <input type="range" id="autoStepSpeed" min="1" max="100" value="10" style="width: 60px;" title="Speed">
-                </div>
+                <label style="font-size: 10px; color:#ccc;">Auto Clock:</label>
+                <input type="checkbox" id="autoClockToggle">
             </div>
         </div>
         <div id="circuitMonitorContent" class="panel-content" style="padding-top: 0;">
@@ -327,14 +329,12 @@
     </div>
 
     <div id="vgaMonitor" class="panel">
-        <div class="panel-header">VGA Monitor</div>
+        <div class="panel-header" style="justify-content: space-between;">
+            <span>VGA Monitor</span>
+            <span id="vgaRayPos" style="font-size: 10px; font-weight: normal; color: #888; font-family: monospace;">Ray: X:0 Y:0</span>
+        </div>
         <div id="vgaMonitorContent" class="panel-content">
-            <div class="monitor-controls" style="margin-top: 10px;">
-                <button id="btnVgaInit">Init VGA</button>
-                <button id="btnVgaStep">Tick 1k</button>
-                <button id="btnVgaRun">Run Continuous</button>
-            </div>
-            <div style="background:#000; border-radius:4px; margin-top:10px; overflow:hidden; border: 1px solid #222;">
+            <div style="background:#000; border-radius:4px; margin-top:5px; overflow:hidden; border: 1px solid #222;">
                 <canvas id="vgaCanvas" style="width:100%; height:auto; image-rendering:pixelated; display:none;"></canvas>
                 <div id="vgaPlaceholder" style="padding:40px; text-align:center; color:#444; font-size:12px;">VGA not initialized</div>
             </div>

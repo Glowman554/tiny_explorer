@@ -3,6 +3,7 @@ import { LAYER_CONFIG } from './circuit_viewer.js';
 /**
  * UI Glue Logic - Keeps the Viewer class pure but maintains functionality
  */
+// MARK: - Main UI Initializer
 export function initViewerUI(viewer) {
     const doc = (id) => document.getElementById(id);
     const logContainer = doc('logContainer');
@@ -16,6 +17,7 @@ export function initViewerUI(viewer) {
     const powerNetToggle = doc('powerNetToggle');
     const btnHighlightIds = doc('btnHighlightIds');
 
+    // MARK: Panel Toggles
     const togglePanelBtn = (btnId, panelId, defaultVisible = true) => {
         const btn = doc(btnId);
         const panel = doc(panelId);
@@ -49,6 +51,7 @@ export function initViewerUI(viewer) {
         }
     };
 
+    // MARK: Panel Draggability
     const makeDraggable = (panelId) => {
         const panel = doc(panelId);
         if (!panel) return;
@@ -105,6 +108,7 @@ export function initViewerUI(viewer) {
     makeDraggable('vgaMonitor');
     makeDraggable('logPanel');
 
+    // MARK: Engine Callbacks
     viewer.onLog = (msg) => {
         if (!logContainer) return;
         logContainer.textContent += msg;
@@ -124,11 +128,15 @@ export function initViewerUI(viewer) {
         if (loading) loading.style.display = 'none';
         rebuildLayerUI(viewer);
         updateTreeListUI(viewer);
-        updateCircuitMonitor(viewer);
+        
+        const monitor = document.getElementById('circuitMonitorContent');
+        if (monitor) monitor.innerHTML = ''; // Force a completely fresh layout on new GDS 
+        buildCircuitMonitorUI(viewer);
+        updateCircuitMonitorState(viewer);
     };
 
     viewer.onUpdateCircuit = (wireData) => {
-        updateCircuitMonitor(viewer, wireData);
+        updateCircuitMonitorState(viewer, wireData);
     };
 
     viewer.onVgaFrame = (buffer, width, height) => {
@@ -138,6 +146,7 @@ export function initViewerUI(viewer) {
     // Toggle logic for all panels has been moved to top menu
 
     // Event listeners for viewer state
+    // MARK: View Controls
     if (alphaSlider) alphaSlider.oninput = () => {
         viewer.view.globalAlpha = parseFloat(alphaSlider.value);
         viewer.requestFrame();
@@ -170,70 +179,63 @@ export function initViewerUI(viewer) {
         viewer.setRenderMode(renderModeSelect.value);
     };
 
-    // VGA Controls
-    if (doc('btnVgaInit')) doc('btnVgaInit').onclick = () => {
-        viewer.initVga();
-        doc('vgaPlaceholder').innerText = "VGA Initializing...";
-    };
+    // MARK: Simulation Controls
+    const simSpeed = doc('simSpeed');
+    const simSpeedLabel = doc('simSpeedLabel');
+    const autoClockToggle = doc('autoClockToggle');
+    const btnPlayPause = doc('btnPlayPause');
 
-    if (doc('btnVgaStep')) doc('btnVgaStep').onclick = () => {
-        viewer.vgaTick(100);
-    };
+    let isPaused = true;
 
-    viewer.vgaRunning = false;
-
-    // Auto-stepper
-    const btnStep = doc('btnStepWave');
-    if (btnStep) btnStep.onclick = () => viewer.stepCircuit();
-
-    const autoStepToggle = doc('autoStepToggle');
-    const autoStepSpeed = doc('autoStepSpeed');
-    let autoStepInterval = null;
-
-    const startAutoStep = () => {
-        if (autoStepInterval) clearInterval(autoStepInterval);
-        if (!autoStepToggle.checked) return;
-        const fps = parseFloat(autoStepSpeed.value) || 10;
-        const delay = 1000 / fps;
-        autoStepInterval = setInterval(() => {
-            if (viewer.isLoaded) {
-                viewer.stepCircuit();
+    const updateSimConfig = () => {
+        if (!viewer.isLoaded) return;
+        const speedVal = parseInt(simSpeed.value, 10);
+        const autoClk = autoClockToggle.checked;
+        const speed = isPaused ? 0 : speedVal;
+        
+        if (isPaused) {
+            if (btnPlayPause) {
+                btnPlayPause.innerText = '▶';
+                btnPlayPause.style.color = '#aa0';
             }
-        }, delay);
-    };
-
-    if (autoStepToggle) {
-        autoStepToggle.onchange = startAutoStep;
-    }
-    if (autoStepSpeed) {
-        autoStepSpeed.oninput = startAutoStep;
-    }
-    
-    // Hook into VGA frame arrival to trigger next tick if running
-    const originalOnVgaFrame = viewer.onVgaFrame;
-    viewer.onVgaFrame = (buffer, width, height) => {
-        if (originalOnVgaFrame) originalOnVgaFrame(buffer, width, height);
-        if (viewer.vgaRunning) {
-            // Use requestAnimationFrame or a short timeout to avoid pegging the CPU too hard
-            // and allowing UI events to process
-            setTimeout(() => {
-                if (viewer.vgaRunning) viewer.vgaTick(100);
-            }, 0);
+            if (simSpeedLabel) {
+                simSpeedLabel.innerText = 'PAUSED';
+                simSpeedLabel.style.color = '#aa0';
+            }
+        } else {
+            if (btnPlayPause) {
+                btnPlayPause.innerText = '⏸';
+                btnPlayPause.style.color = '#0f0';
+            }
+            if (simSpeedLabel) {
+                simSpeedLabel.style.color = '#0f0';
+                if (speedVal === 100) simSpeedLabel.innerText = 'MAX';
+                else simSpeedLabel.innerText = `${speedVal}%`;
+            }
         }
+        
+        viewer.setSimConfig(speed, isPaused ? false : autoClk);
     };
 
-    if (doc('btnVgaRun')) {
-        doc('btnVgaRun').onclick = () => {
-            if (viewer.vgaRunning) {
-                viewer.vgaRunning = false;
-                doc('btnVgaRun').innerText = "Run Continuous";
-            } else {
-                viewer.vgaRunning = true;
-                doc('btnVgaRun').innerText = "Stop VGA";
-                viewer.vgaTick(100); // Trigger first tick
-            }
+    if (btnPlayPause) {
+        btnPlayPause.onclick = () => {
+            isPaused = !isPaused;
+            updateSimConfig();
         };
     }
+
+    if (simSpeed) simSpeed.oninput = () => {
+        if (isPaused) isPaused = false;
+        updateSimConfig();
+    };
+    if (autoClockToggle) autoClockToggle.onchange = updateSimConfig;
+    
+    // The worker now drives VGA updates and ray properties, remove UI driving
+    viewer.onVgaFrame = (buffer, width, height, rayX, rayY) => {
+        updateVgaMonitor(viewer, buffer, width, height);
+        const rayLabel = document.getElementById('vgaRayPos');
+        if (rayLabel) rayLabel.innerText = `Ray: X:${rayX} Y:${rayY}`;
+    };
 
     if (doc('btnReset')) doc('btnReset').onclick = () => viewer.resetView();
 
@@ -285,6 +287,7 @@ export function initViewerUI(viewer) {
     }
 
     // Animator Integrations
+    // MARK: Animation Controls
     const btnCaptWp = doc('btnCaptWp');
     const btnClearWp = doc('btnClearWp');
     const btnPlayAnim = doc('btnPlayAnim');
@@ -338,6 +341,7 @@ export function initViewerUI(viewer) {
         updateTreeListUI(viewer);
     };
 
+    // MARK: Keyboard Integrations
     window.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             const dir = e.key === 'ArrowDown' ? 1 : -1;
@@ -358,8 +362,7 @@ export function initViewerUI(viewer) {
         if (e.key.toLowerCase() === 'c') {
             const clkWire = viewer.wireNames.find(w => /^clk$/i.test(w.name));
             if (clkWire) {
-                const state = (viewer.netStateData) ? (viewer.netStateData[clkWire.id] & 1) : 0;
-                viewer.toggleWire(clkWire.id, state);
+                viewer.toggleWire(clkWire.id);
             }
         }
         if (e.key === ' ') {
@@ -372,6 +375,7 @@ export function initViewerUI(viewer) {
     });
 }
 
+// MARK: - Tree Hierarchy UI
 function syncTreeSelection(viewer) {
     const treeSelect = document.getElementById('treeSelect');
     
@@ -432,6 +436,7 @@ export function updateTreeListUI(viewer) {
     }
 }
 
+// MARK: - Context & Layers UI
 export function rebuildLayerUI(viewer) {
     const layerList = document.getElementById('layerList');
     const minSlider = document.getElementById('layerMinIdx');
@@ -533,19 +538,18 @@ function cycleSoloLayer(viewer, dir) {
     rebuildLayerUI(viewer);
 }
 
-export function updateCircuitMonitor(viewer, wireData) {
+// MARK: - Simulation Monitor
+
+function buildCircuitMonitorUI(viewer) {
     const monitor = document.getElementById('circuitMonitorContent');
     if (!monitor) return;
+    
     if (viewer.wireNames.length === 0) {
         monitor.innerHTML = '<div style="padding:10px; color:#666;">No circuit data</div>';
         return;
     }
 
-    const getFullState = (id) => {
-        return (wireData) ? wireData[id] : (viewer.netStateData ? viewer.netStateData[id] : 0);
-    };
-
-    // Filter and group signals
+    // Filter and group signals (Only done once on load)
     const groupPattern = /^(.+)\[(\d+)\]$/;
     const groupsMap = new Map();
     const singleBits = [];
@@ -566,85 +570,128 @@ export function updateCircuitMonitor(viewer, wireData) {
         }
     });
 
-    // Sort single bits by name
     singleBits.sort((a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true}));
 
     monitor.innerHTML = '';
     
-    // Show static controls
     const controlsUI = document.getElementById('circuitControls');
     if (controlsUI) controlsUI.style.display = 'block';
 
-    // Single Bits Row
+    // Store a map of how to fast-update groups on the DOM parent
+    viewer._uiGroupNodes = [];
+    viewer._uiButtonNodes = []; // list of {id, element}
+
+    // 1. Single Bits Row
     if (singleBits.length > 0) {
-        const specialRow = document.createElement('div');
+        let specialRow = document.createElement('div');
         specialRow.className = 'monitor-special-row';
         specialRow.style.flexWrap = 'wrap';
+        monitor.appendChild(specialRow);
+        
         singleBits.forEach(wire => {
-            const btn = document.createElement('div');
+            let btn = document.createElement('div');
             btn.className = 'monitor-special-btn';
             btn.innerText = wire.name;
-            const raw = getFullState(wire.id);
-            const state = raw & 1;
-            if (state === 1) btn.classList.add('state-high');
-            else btn.classList.add('state-low');
-            if (raw & 0x40) btn.classList.add('state-flipped');
-            btn.onclick = () => viewer.toggleWire(wire.id, state);
+            btn.onclick = () => {
+                viewer.toggleWire(wire.id);
+            };
             specialRow.appendChild(btn);
+            viewer._uiButtonNodes.push({ wireId: wire.id, el: btn, isGroup: false });
         });
-        monitor.appendChild(specialRow);
     }
 
-    // Groups
+    // 2. Groups
     const sortedGroupNames = Array.from(groupsMap.keys()).sort();
     sortedGroupNames.forEach(groupName => {
         const groupWires = groupsMap.get(groupName);
         
-        let val = 0n;
-        groupWires.forEach((wire, i) => {
-            if (wire) {
-                const bit = BigInt(getFullState(wire.id) & 1);
-                val |= (bit << BigInt(i));
-            }
-        });
-
-        const label = document.createElement('div');
+        let label = document.createElement('div');
         label.className = 'monitor-group-label';
-        const hex = val.toString(16).toUpperCase().padStart(2, "0");
-        const dec = val.toString().padStart(3, " ");
-        label.innerHTML = `${groupName} <span style="font-family:monospace; white-space: pre; color:#aaa; margin-left:8px; text-transform:none; font-size:1.5em;">0x${hex} (${dec})</span>`;
         monitor.appendChild(label);
 
-        const grid = document.createElement('div');
+        let grid = document.createElement('div');
         grid.className = 'monitor-grid';
+        monitor.appendChild(grid);
         
-        // Use 8 as a minimum size for the grid if it's likely a TT port
         const isTTPort = ['ui_in', 'uo_out', 'uio_in', 'uio_out'].includes(groupName);
         const count = Math.max(isTTPort ? 8 : 0, groupWires.length);
+
+        const groupDefinition = {
+            name: groupName,
+            labelEl: label,
+            wires: [] // store wire IDs matching indices
+        };
 
         for (let i = 0; i < count; i++) {
             const wire = groupWires[i];
             const btn = document.createElement('div');
             btn.className = 'monitor-btn';
             btn.innerText = i;
+            
             if (wire) {
-                const raw = getFullState(wire.id);
-                const state = raw & 1;
-                if (state === 1) btn.classList.add('state-high');
-                else btn.classList.add('state-low');
-                if (raw & 0x40) btn.classList.add('state-flipped');
-                btn.onclick = () => viewer.toggleWire(wire.id, state);
+                btn.onclick = () => {
+                    viewer.toggleWire(wire.id);
+                };
+                viewer._uiButtonNodes.push({ wireId: wire.id, el: btn, isGroup: true });
+                groupDefinition.wires.push(wire.id);
             } else {
                 btn.style.opacity = '0.15';
                 btn.style.cursor = 'default';
                 btn.style.color = '#333';
+                groupDefinition.wires.push(null);
             }
             grid.appendChild(btn);
         }
-        monitor.appendChild(grid);
+        
+        viewer._uiGroupNodes.push(groupDefinition);
     });
 }
 
+function updateCircuitMonitorState(viewer, wireData) {
+    if (!viewer._uiButtonNodes || !viewer._uiGroupNodes) return;
+
+    const getFullState = (id) => {
+        return (wireData) ? wireData[id] : (viewer.netStateData ? viewer.netStateData[id] : 0);
+    };
+
+    // Fast-path: Update all buttons via bound DOM nodes
+    for (let node of viewer._uiButtonNodes) {
+        const raw = getFullState(node.wireId);
+        const state = raw & 1;
+        
+        let targetClass = node.isGroup ? 'monitor-btn' : 'monitor-special-btn';
+        if (state === 1) targetClass += ' state-high';
+        else targetClass += ' state-low';
+        if (raw & 0x40) targetClass += ' state-flipped';
+        
+        if (node.el.className !== targetClass) {
+            node.el.className = targetClass;
+        }
+    }
+
+    // Fast-path: Update group hex/dec text labels dynamically
+    for (let group of viewer._uiGroupNodes) {
+        let val = 0n;
+        for (let i = 0; i < group.wires.length; i++) {
+            const wireId = group.wires[i];
+            if (wireId !== null) {
+                const bit = BigInt(getFullState(wireId) & 1);
+                val |= (bit << BigInt(i));
+            }
+        }
+        
+        const hex = val.toString(16).toUpperCase().padStart(2, "0");
+        const dec = val.toString().padStart(3, " ");
+        
+        // Fast DOM write
+        const content = `${group.name} <span style="font-family:monospace; white-space: pre; color:#aaa; margin-left:8px; text-transform:none; font-size:1.5em;">0x${hex} (${dec})</span>`;
+        if (group.labelEl.innerHTML !== content) {
+            group.labelEl.innerHTML = content;
+        }
+    }
+}
+
+// MARK: - CRT / VGA View
 export function updateVgaMonitor(viewer, buffer, width, height) {
     const canvas = document.getElementById('vgaCanvas');
     const placeholder = document.getElementById('vgaPlaceholder');
@@ -674,6 +721,7 @@ export function updateVgaMonitor(viewer, buffer, width, height) {
     ctx.putImageData(imageData, 0, 0);
 }
 
+// MARK: - Utilities
 function parseIdList(str) {
     const ids = new Set();
     const parts = str.split(/[,\s]+/);
