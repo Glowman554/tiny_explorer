@@ -1,5 +1,6 @@
 import { LAYER_CONFIG } from './circuit_viewer.js';
 import { makeDraggable } from './draggable.js';
+import { createStore } from './store.js';
 
 /**
  * UI Glue Logic - Keeps the Viewer class pure but maintains functionality
@@ -8,15 +9,7 @@ import { makeDraggable } from './draggable.js';
 export function initViewerUI(viewer) {
     const doc = (id) => document.getElementById(id);
     const logContainer = doc('logContainer');
-    const logPanel = doc('logPanel');
     const loading = doc('loading');
-    const treeSelect = doc('treeSelect');
-    const treeSearch = doc('treeSearch');
-    const treeIdList = doc('treeIdList');
-    const alphaSlider = doc('alphaSlider');
-    const boundaryToggle = doc('boundaryToggle');
-    const powerNetToggle = doc('powerNetToggle');
-    const btnHighlightIds = doc('btnHighlightIds');
 
     // MARK: Panel Toggles
     const togglePanelBtn = (btnId, panelId, defaultVisible = true) => {
@@ -152,6 +145,7 @@ export function initViewerUI(viewer) {
     bindSimulationControls(viewer);
     bindAnimationControls(viewer);
     bindTreeInspectorUI(viewer);
+    bindLayerControls(viewer);
     bindKeyboardHotkeys(viewer);
     // The worker now drives VGA updates and ray properties, remove UI driving
     viewer.onUpdateCircuit = (wireData) => {
@@ -189,11 +183,6 @@ export function initViewerUI(viewer) {
             btn.disabled = false;
         }
     };
-
-    const layerMinIdx = doc('layerMinIdx');
-    if (layerMinIdx) layerMinIdx.oninput = () => rebuildLayerUI(viewer);
-    const layerMaxIdx = doc('layerMaxIdx');
-    if (layerMaxIdx) layerMaxIdx.oninput = () => rebuildLayerUI(viewer);
 
 }
 
@@ -297,75 +286,72 @@ export function bindSimulationControls(viewer) {
     const stateMixSlider = doc('stateMixSlider');
 
     // UI Local State
-    let isPaused = true;
+    // 1. Define Reactive State
+    const Store = createStore({
+        isPaused: true,
+        simSpeed: simSpeed ? parseInt(simSpeed.value, 10) : 50,
+        autoClock: autoClockToggle ? autoClockToggle.checked : false
+    });
 
-    const updateSimConfig = () => {
-        if (!viewer.isLoaded) return;
-        const speedVal = simSpeed ? parseInt(simSpeed.value, 10) : 50;
-        const autoClk = autoClockToggle ? autoClockToggle.checked : false;
-        const speed = isPaused ? 0 : speedVal;
-        
-        // CSS classes instead of inline properties
-        if (isPaused) {
-            if (btnPlayPause) {
-                btnPlayPause.innerText = '▶';
-                btnPlayPause.classList.add('btn-inactive');
-                btnPlayPause.classList.remove('btn-active');
-            }
-            if (simSpeedLabel) {
-                simSpeedLabel.innerText = 'PAUSED';
-                simSpeedLabel.classList.add('btn-inactive');
-                simSpeedLabel.classList.remove('btn-active');
-            }
-        } else {
-            if (btnPlayPause) {
-                btnPlayPause.innerText = '⏸';
-                btnPlayPause.classList.add('btn-active');
-                btnPlayPause.classList.remove('btn-inactive');
-            }
-            if (simSpeedLabel) {
-                simSpeedLabel.classList.add('btn-active');
-                simSpeedLabel.classList.remove('btn-inactive');
-                if (speedVal === 100) simSpeedLabel.innerText = 'MAX';
-                else simSpeedLabel.innerText = `${speedVal}%`;
-            }
+    // 2. Declarative DOM Bindings (Run automatically whenever state changes)
+    Store.bind('isPaused', (paused) => {
+        if (btnPlayPause) {
+            btnPlayPause.innerText = paused ? '▶' : '⏸';
+            btnPlayPause.classList.toggle('btn-inactive', paused);
+            btnPlayPause.classList.toggle('btn-active', !paused);
         }
-        
-        viewer.setSimConfig(speed, isPaused ? false : autoClk);
-    };
+        if (simSpeedLabel) {
+            const speed = Store.get().simSpeed;
+            simSpeedLabel.innerText = paused ? 'PAUSED' : (speed === 100 ? 'MAX' : `${speed}%`);
+            simSpeedLabel.classList.toggle('btn-inactive', paused);
+            simSpeedLabel.classList.toggle('btn-active', !paused);
+        }
+    });
 
+    Store.bind('simSpeed', (speed) => {
+        if (simSpeedLabel && !Store.get().isPaused) {
+            simSpeedLabel.innerText = speed === 100 ? 'MAX' : `${speed}%`;
+        }
+    });
+
+    // 3. Engine Sync (Sync our reactive state back to the C++ core)
+    Store.subscribe((state) => {
+        if (!viewer.isLoaded) return;
+        const actualSpeed = state.isPaused ? 0 : state.simSpeed;
+        viewer.setSimConfig(actualSpeed, state.isPaused ? false : state.autoClock);
+    });
+
+    // 4. Pure Input Mutation Handling
     if (btnPlayPause) {
         btnPlayPause.onclick = () => {
-            isPaused = !isPaused;
-            if (!isPaused && stateMixSlider) {
+            const nextPaused = !Store.get().isPaused;
+            if (!nextPaused && stateMixSlider) {
                 stateMixSlider.value = 0.75;
                 viewer.view.stateMix = 0.75;
                 viewer.requestFrame();
             }
-            updateSimConfig();
+            Store.set({ isPaused: nextPaused });
         };
     }
 
     if (simSpeed) {
         simSpeed.oninput = () => {
-            if (isPaused) {
-                isPaused = false;
+            if (Store.get().isPaused) {
+                Store.set({ isPaused: false, simSpeed: parseInt(simSpeed.value, 10) });
                 if (stateMixSlider) {
                     stateMixSlider.value = 0.75;
                     viewer.view.stateMix = 0.75;
                     viewer.requestFrame();
                 }
+            } else {
+                Store.set({ simSpeed: parseInt(simSpeed.value, 10) });
             }
-            updateSimConfig();
         };
     }
     
     if (autoClockToggle) {
-        autoClockToggle.onchange = updateSimConfig;
+        autoClockToggle.onchange = () => Store.set({ autoClock: autoClockToggle.checked });
     }
-
-    // Initialize state
-    updateSimConfig();
 }
 
 export function bindTreeInspectorUI(viewer) {
@@ -436,17 +422,11 @@ export function bindKeyboardHotkeys(viewer) {
 
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             const dir = e.key === 'ArrowDown' ? 1 : -1;
-            if (viewer.soloLayerId !== null) {
-                cycleSoloLayer(viewer, dir);
-            } else if (treeSelect && treeSelect.options.length > 0) {
+            if (treeSelect && treeSelect.options.length > 0) {
                 e.preventDefault();
                 treeSelect.selectedIndex = Math.max(0, Math.min(treeSelect.selectedIndex + dir, treeSelect.options.length - 1));
                 syncTreeSelection(viewer);
             }
-        }
-        if (e.key === 'Escape') {
-            viewer.setSoloLayer(null);
-            rebuildLayerUI(viewer);
         }
         
         // Don't trigger hotkeys if the user is typing in a field
@@ -505,31 +485,36 @@ export function updateTreeListUI(viewer) {
         });
     }
 
-    select.innerHTML = '';
     let count = 0;
+    const optionsHtml = [];
     for (const [treeStr, area] of sortedTrees) {
         const treeId = parseInt(treeStr);
         const name = netToName[treeId];
         const label = name ? `${name} (Tree ${treeId}) (Area: ${area.toLocaleString()})` : `Tree ${treeId} (Area: ${area.toLocaleString()})`;
         
         if (label.toLowerCase().includes(query)) {
-            const opt = document.createElement('option');
-            opt.value = treeId;
-            opt.innerText = label;
-            
+            let selectedAttr = '';
             // Re-select if any net in this tree was highlighted
             if (viewer.netStateData && viewer.treeToNets[treeId]) {
                 const anyNetHighlighted = Array.from(viewer.treeToNets[treeId]).some(netId => viewer.netStateData[netId] & 0x80);
-                if (anyNetHighlighted) opt.selected = true;
+                if (anyNetHighlighted) selectedAttr = 'selected';
             }
-            
-            select.appendChild(opt);
+            optionsHtml.push(`<option value="${treeId}" ${selectedAttr}>${label}</option>`);
             if (++count >= 1000) break;
         }
     }
+    select.innerHTML = optionsHtml.join('');
 }
 
 // MARK: - Context & Layers UI
+export function bindLayerControls(viewer) {
+    const minSlider = document.getElementById('layerMinIdx');
+    const maxSlider = document.getElementById('layerMaxIdx');
+
+    if (minSlider) minSlider.oninput = () => rebuildLayerUI(viewer);
+    if (maxSlider) maxSlider.oninput = () => rebuildLayerUI(viewer);
+}
+
 export function rebuildLayerUI(viewer) {
     const layerList = document.getElementById('layerList');
     const minSlider = document.getElementById('layerMinIdx');
@@ -579,56 +564,24 @@ export function rebuildLayerUI(viewer) {
         }
     }
 
-    layerList.innerHTML = '';
-    
     // Sort descending for the UI badges display (top layer first)
     const displayLids = lids.slice().sort((a, b) => (LAYER_CONFIG[b]?.z || 0) - (LAYER_CONFIG[a]?.z || 0));
 
-    displayLids.forEach(lid => {
-        const div = document.createElement('div');
-        div.className = 'layer-badge' + (viewer.layers[lid].visible ? '' : ' hidden-layer');
+    layerList.innerHTML = displayLids.map(lid => {
+        const isVisible = viewer.layers[lid].visible;
+        const className = 'layer-badge' + (isVisible ? '' : ' hidden-layer');
         const config = LAYER_CONFIG[lid] || { name: "Layer " + lid, color: [0.5, 0.5, 0.5] };
-
         const c = config.color;
-        const s = document.createElement('span');
-        s.className = 'layer-color';
-        s.style.backgroundColor = `rgba(${c[0]*255}, ${c[1]*255}, ${c[2]*255}, 1)`;
+        const colorStr = `rgba(${c[0]*255}, ${c[1]*255}, ${c[2]*255}, 1)`;
+        const name = lid == 5 ? "FET" : config.name;
         
-        const text = document.createElement('span');
-        text.innerText = lid == 5 ? "FET" : config.name;
-        
-        div.appendChild(s);
-        div.appendChild(text);
-
-        div.onclick = () => {
-            viewer.setSoloLayer(viewer.soloLayerId === lid ? null : lid);
-            rebuildLayerUI(viewer);
-        };
-
-        if (viewer.soloLayerId !== null) {
-            const isActive = (lid == 5);
-            const isSoloActive = (viewer.soloLayerId == 3 || viewer.soloLayerId == 4 || viewer.soloLayerId == 5);
-            const match = (isActive && isSoloActive) || (String(lid) === String(viewer.soloLayerId));
-            div.style.opacity = match ? '1.0' : '0.3';
-            if (match) div.classList.remove('hidden-layer');
-        }
-
-        layerList.appendChild(div);
-    });
+        return `<div class="${className}" data-lid="${lid}">
+            <span class="layer-color" style="background-color: ${colorStr};"></span>
+            <span>${name}</span>
+        </div>`;
+    }).join('');
 
     viewer.requestFrame();
-}
-
-function cycleSoloLayer(viewer, dir) {
-    if (viewer.sortedLids.length === 0) return;
-    let idx = viewer.sortedLids.indexOf(String(viewer.soloLayerId));
-    if (idx === -1) {
-        idx = (dir > 0) ? 0 : viewer.sortedLids.length - 1;
-    } else {
-        idx = (idx + dir + viewer.sortedLids.length) % viewer.sortedLids.length;
-    }
-    viewer.setSoloLayer(viewer.sortedLids[idx]);
-    rebuildLayerUI(viewer);
 }
 
 // MARK: - Simulation Monitor
@@ -646,22 +599,18 @@ function buildCircuitMonitorUI(viewer) {
     const importantRegex = /^(?:[iu]o(_in|_out)?|uio(_in|_out)?|clk|ena|rst_?n?|[a-z]{1,2})$/i;
     const isImportant = (name) => importantRegex.test(name) || /^(?:io|ui|uo|uio)_/i.test(name);
 
-    // Filter and group signals (Only done once on load)
-    const groupPattern = /^(.+)\[(\d+)\]$/;
+    // Filter and group signals
     const groupsMap = new Map();
     const singleBits = [];
 
     viewer.wireNames.forEach(w => {
         const nameUpper = w.name.toUpperCase();
-        if (nameUpper === 'VDD' || nameUpper === 'VSS') return;
-        if (w.id === 0 || w.id === 1) return;
+        if (nameUpper === 'VDD' || nameUpper === 'VSS' || w.id <= 1) return;
 
-        const m = w.name.match(groupPattern);
+        const m = w.name.match(/^(.+)\[(\d+)\]$/);
         if (m) {
-            const groupName = m[1];
-            const idx = parseInt(m[2]);
-            if (!groupsMap.has(groupName)) groupsMap.set(groupName, []);
-            groupsMap.get(groupName)[idx] = w;
+            if (!groupsMap.has(m[1])) groupsMap.set(m[1], []);
+            groupsMap.get(m[1])[parseInt(m[2])] = w;
         } else {
             singleBits.push(w);
         }
@@ -669,103 +618,70 @@ function buildCircuitMonitorUI(viewer) {
 
     singleBits.sort((a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true}));
 
-    monitor.innerHTML = '';
+    const renderSingleBitsHTML = (wires, filterFunc) => {
+        const filtered = wires.filter(w => filterFunc(w.name));
+        if (!filtered.length) return '';
+        return `<div class="monitor-special-row" style="flex-wrap: wrap;">
+            ${filtered.map(w => `<div class="monitor-special-btn" data-wire-id="${w.id}">${w.name}</div>`).join('')}
+        </div>`;
+    };
+
+    let importantHtml = renderSingleBitsHTML(singleBits, isImportant);
+    let detailsHtml = renderSingleBitsHTML(singleBits, n => !isImportant(n));
+    let hiddenCount = singleBits.filter(w => !isImportant(w.name)).length;
+
+    Array.from(groupsMap.keys()).sort().forEach(groupName => {
+        const groupWires = groupsMap.get(groupName);
+        const important = isImportant(groupName);
+        const isTTPort = ['ui_in', 'uo_out', 'uio_in', 'uio_out', 'uo', 'ui', 'uio'].includes(groupName.toLowerCase());
+        const count = Math.max(isTTPort ? 8 : 0, groupWires.length);
+        if (!important) hiddenCount++;
+
+        const wireIds = [];
+        let gridHtml = `<div class="monitor-group-label" data-group-name="${groupName}"></div><div class="monitor-grid">`;
+        
+        for (let i = 0; i < count; i++) {
+            const wire = groupWires[i];
+            if (wire) {
+                gridHtml += `<div class="monitor-btn" data-wire-id="${wire.id}">${i}</div>`;
+                wireIds.push(wire.id);
+            } else {
+                gridHtml += `<div class="monitor-btn" style="opacity:0.15; cursor:default; color:#333;">${i}</div>`;
+                wireIds.push(null);
+            }
+        }
+        gridHtml += `</div>`;
+        
+        // Inject wireIds payload into the label node invisibly for caching later
+        gridHtml = gridHtml.replace('>', ` data-wires='${JSON.stringify(wireIds)}'>`);
+
+        if (important) importantHtml += gridHtml;
+        else detailsHtml += gridHtml;
+    });
+
+    monitor.innerHTML = importantHtml + (hiddenCount > 0 ? `<details><summary>${hiddenCount} hidden signals...</summary>${detailsHtml}</details>` : '');
     
+    // Event Delegation instead of 50 bound handlers
+    monitor.onclick = (e) => {
+        const wireId = e.target.getAttribute('data-wire-id');
+        if (wireId) viewer.toggleWire(parseInt(wireId));
+    };
+
     const controlsUI = document.getElementById('circuitControls');
     if (controlsUI) controlsUI.style.display = 'block';
 
-    const details = document.createElement('details');
-    const summary = document.createElement('summary');
-    details.appendChild(summary);
-    
-    let hiddenCount = 0;
+    // Build the high-speed Cache Maps
+    viewer._uiButtonNodes = Array.from(monitor.querySelectorAll('[data-wire-id]')).map(el => ({
+        wireId: parseInt(el.getAttribute('data-wire-id')),
+        el: el,
+        isGroup: el.classList.contains('monitor-btn')
+    }));
 
-    // Store a map of how to fast-update groups on the DOM parent
-    viewer._uiGroupNodes = [];
-    viewer._uiButtonNodes = []; // list of {id, element}
-
-    const renderSingleBits = (wires, parent, filter) => {
-        const filtered = wires.filter(w => filter(w.name));
-        if (filtered.length === 0) return 0;
-        
-        let specialRow = document.createElement('div');
-        specialRow.className = 'monitor-special-row';
-        specialRow.style.flexWrap = 'wrap';
-        parent.appendChild(specialRow);
-        
-        filtered.forEach(wire => {
-            let btn = document.createElement('div');
-            btn.className = 'monitor-special-btn';
-            btn.innerText = wire.name;
-            btn.onclick = () => {
-                viewer.toggleWire(wire.id);
-            };
-            specialRow.appendChild(btn);
-            viewer._uiButtonNodes.push({ wireId: wire.id, el: btn, isGroup: false });
-        });
-        return filtered.length;
-    };
-
-    // 1. Important Single Bits
-    renderSingleBits(singleBits, monitor, isImportant);
-
-    // 2. Groups
-    const sortedGroupNames = Array.from(groupsMap.keys()).sort();
-    sortedGroupNames.forEach(groupName => {
-        const groupWires = groupsMap.get(groupName);
-        const important = isImportant(groupName);
-        const parent = important ? monitor : details;
-        if (!important) hiddenCount++;
-
-        let label = document.createElement('div');
-        label.className = 'monitor-group-label';
-        parent.appendChild(label);
-
-        let grid = document.createElement('div');
-        grid.className = 'monitor-grid';
-        parent.appendChild(grid);
-        
-        const isTTPort = ['ui_in', 'uo_out', 'uio_in', 'uio_out', 'uo', 'ui', 'uio'].includes(groupName.toLowerCase());
-        const count = Math.max(isTTPort ? 8 : 0, groupWires.length);
-
-        const groupDefinition = {
-            name: groupName,
-            labelEl: label,
-            wires: [] // store wire IDs matching indices
-        };
-
-        for (let i = 0; i < count; i++) {
-            const wire = groupWires[i];
-            const btn = document.createElement('div');
-            btn.className = 'monitor-btn';
-            btn.innerText = i;
-            
-            if (wire) {
-                btn.onclick = () => {
-                    viewer.toggleWire(wire.id);
-                };
-                viewer._uiButtonNodes.push({ wireId: wire.id, el: btn, isGroup: true });
-                groupDefinition.wires.push(wire.id);
-            } else {
-                btn.style.opacity = '0.15';
-                btn.style.cursor = 'default';
-                btn.style.color = '#333';
-                groupDefinition.wires.push(null);
-            }
-            grid.appendChild(btn);
-        }
-        
-        viewer._uiGroupNodes.push(groupDefinition);
-    });
-
-    // 3. Hidden Single Bits
-    const count = renderSingleBits(singleBits, details, (n) => !isImportant(n));
-    if (count) hiddenCount += count;
-
-    if (hiddenCount > 0) {
-        summary.innerText = `${hiddenCount} hidden signals...`;
-        monitor.appendChild(details);
-    }
+    viewer._uiGroupNodes = Array.from(monitor.querySelectorAll('[data-group-name]')).map(el => ({
+        name: el.getAttribute('data-group-name'),
+        labelEl: el,
+        wires: JSON.parse(el.getAttribute('data-wires'))
+    }));
 }
 
 function updateCircuitMonitorState(viewer, wireData) {
