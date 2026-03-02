@@ -17,7 +17,7 @@ struct CircuitExtractor {
     gdstk::Library glib;
 
     std::vector<Cell> cells;
-    std::string pdk = "sky130A"; // default
+    std::string pdk; // empty -> autodetect
     std::string topOverride;
     std::map<const gdstk::Cell*, int> gcell2id;
 
@@ -53,6 +53,7 @@ struct CircuitExtractor {
     bool process() {
         gdstk::Cell * top = getTop();
         if (!top) return false;
+        detectPDK();
         preprocessCells();
         const Cell topCell = cells[gcell2id[top]];
         if (topCell.groundRect == -1 || topCell.powerRect == -1) {
@@ -108,6 +109,43 @@ struct CircuitExtractor {
         printf("Top cell: %s\n", top->name);
         tops.clear(); raw_tops.clear();
         return top;
+    }
+
+    void detectPDK() {
+        if (!pdk.empty()) {
+            printf("PDK: %s\n", pdk.c_str());
+            return;
+        }
+
+        const auto& pdkMaps = getPdkMaps();
+        struct Hits {int count=0; int mask=0; };
+        std::map<std::string, Hits> pdkHits;
+        pdk = "sky130A";  // fallback
+        bool done=false;
+        int maxHits = 0;
+
+        for (uint64_t i = 0; i < glib.cell_array.count && !done; ++i) {
+            gdstk::Cell* cell = glib.cell_array[i];
+            for (uint64_t j = 0; j < cell->polygon_array.count && !done; ++j) {
+                const  gdstk::Polygon* poly = cell->polygon_array[j];
+                for (const auto& [name, tagMap] : pdkMaps) {
+                    LayerID layer = tag2id(poly->tag, name);
+                    if (layer == L_COUNT) continue;
+                    if (pdkHits[name].mask & (1<<layer)) continue;
+                    pdkHits[name].mask |= 1<<layer;
+                    maxHits = std::max(++pdkHits[name].count, maxHits);
+                    if (maxHits > 5) {
+                        done = true;
+                        pdk = name;
+                    }
+                }
+            }
+        }
+        if (done) {
+            printf("Auto-detected PDK: %s\n", pdk.c_str());
+        } else {
+            printf("PDK detection uncertain, defaulting to %s\n", pdk.c_str());    
+        }
     }
 
     void preprocessCells() {

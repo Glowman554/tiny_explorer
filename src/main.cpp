@@ -337,19 +337,18 @@ int main() { return 0; }
 int main() {
 
     wasm_arena_init(1);
-    //const char * path = "gds/ihp-25a/tt_um_znah_vga_ca.gds", *pdk = "ihp-sg13g2";
-    //const char * path = "gds/sky-25b/tt_um_pongsagon_tinygpu_v2.oas", *pdk = "sky130A";
-    //const char * path = "gds/09/tt_um_rejunity_atari2600.gds", *pdk = "sky130A";
-    const char * path = "gds/09/tt_um_znah_vga_ca.gds", *pdk = "sky130A";
-    //const char * path = "gds/gf-0p2/tt_um_2048_vga_game.oas", *pdk = "gf180mcuD";
-    //const char * path = "gds/09/tt_um_a1k0n_nyancat.gds", *pdk = "sky130A";
-    //const char * path = "gds/08/tt_um_a1k0n_vgadonut.gds", *pdk = "sky130A";
-    //const char * path = "gds/09/tt_um_oscillating_bones.gds", *pdk = "sky130A";
+    //const char * path = "gds/ihp-25a/tt_um_znah_vga_ca.gds";
+    //const char * path = "gds/sky-25b/tt_um_pongsagon_tinygpu_v2.oas";
+    //const char * path = "gds/09/tt_um_rejunity_atari2600.gds";
+    const char * path = "gds/09/tt_um_znah_vga_ca.gds";
+    //const char * path = "gds/gf-0p2/tt_um_2048_vga_game.oas";
+    //const char * path = "gds/09/tt_um_a1k0n_nyancat.gds";
+    //const char * path = "gds/08/tt_um_a1k0n_vgadonut.gds";
+    //const char * path = "gds/09/tt_um_oscillating_bones.gds";
     printf("Loading: %s\n", path);
 
     Module* mod = g_mod();
     CircuitExtractor& proc = mod->extractor;
-    proc.pdk = pdk;
 
     auto t0 = std::chrono::high_resolution_clock::now();
     if (!proc.load(path)) return 1;

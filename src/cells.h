@@ -75,10 +75,10 @@ inline bool isPowerLabel(const std::string& label) {
     return false;
 }
 
-
-inline LayerID tag2id(gdstk::Tag tag, const std::string& pdk) {
-    using LayerMap = std::map<std::pair<int16_t, int16_t>, LayerID>;
-    static const std::map<std::string, LayerMap> PdkMaps = {
+using LayerMap = std::map<std::pair<int16_t, int16_t>, LayerID>;
+using PdkMap = std::map<std::string, LayerMap>;
+inline const PdkMap& getPdkMaps() {
+    static const PdkMap PdkMaps = {
         {"sky130A", {
             {{64,20}, L_NWELL}, {{65,20}, L_DIFF},
             {{66,20}, L_POLY}, {{66,44}, L_LICON},
@@ -110,6 +110,11 @@ inline LayerID tag2id(gdstk::Tag tag, const std::string& pdk) {
             {{81, 0}, L_MET4}
         }}
     };
+    return PdkMaps;
+}
+
+inline LayerID tag2id(gdstk::Tag tag, const std::string& pdk) {
+    const auto& PdkMaps = getPdkMaps();
 
     auto pdkIt = PdkMaps.find(pdk);
     if (pdkIt == PdkMaps.end()) return L_COUNT;
