@@ -394,7 +394,8 @@ export function initViewerUI(viewer) {
                 viewer.requestFrame();
             } else {
                 if (viewer.animator.waypoints.length > 1) {
-                    viewer.animator.play(true); // Auto-loop continuously
+                    const duration = animTime ? parseFloat(animTime.value) : 2.0;
+                    viewer.animator.play(true, duration); // Auto-loop continuously
                     btnPlayAnim.innerText = 'Stop Sequence';
                     btnPlayAnim.style.background = '#822';
                     viewer.requestFrame();

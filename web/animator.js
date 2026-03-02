@@ -26,11 +26,12 @@ export class Animator {
         this.stop();
     }
 
-    play(loop = false) {
+    play(loop = false, loopTransitionTime = null) {
         if (this.waypoints.length < 2) return;
         this.isPlaying = true;
         this.isLooping = loop;
         this.currentTime = 0;
+        this.loopTransitionTime = loopTransitionTime !== null ? loopTransitionTime : this.defaultTransitionTime;
     }
 
     stop() {
@@ -48,32 +49,45 @@ export class Animator {
         if (!this.isPlaying || this.waypoints.length < 2) return false;
 
         this.currentTime += dt;
+        
+        const loopDuration = this.isLooping ? this.loopTransitionTime : 0;
+        const effectiveTotalDuration = this.totalDuration + loopDuration;
 
-        if (this.currentTime >= this.totalDuration) {
-            if (this.isLooping && this.totalDuration > 0) {
-                this.currentTime %= this.totalDuration;
+        if (this.currentTime >= effectiveTotalDuration) {
+            if (this.isLooping && effectiveTotalDuration > 0) {
+                this.currentTime %= effectiveTotalDuration;
             } else {
                 this.currentTime = this.totalDuration;
                 this.isPlaying = false; // Stop at the end
                 this.applyWaypoint(this.waypoints.length - 1, targetState);
+                return true;
             }
-            return true; // Still requires one last render
         }
 
-        // Find the segment we are in
-        let idx = 0;
-        while (idx < this.waypoints.length - 1 && this.currentTime >= this.waypoints[idx + 1].timeOffset) {
-            idx++;
-        }
+        let wpA, wpB, segmentDuration, localTime;
 
-        const wpA = this.waypoints[idx];
-        const wpB = this.waypoints[idx + 1];
+        if (this.currentTime < this.totalDuration) {
+            // Normal segment find
+            let idx = 0;
+            while (idx < this.waypoints.length - 1 && this.currentTime >= this.waypoints[idx + 1].timeOffset) {
+                idx++;
+            }
+            wpA = this.waypoints[idx];
+            wpB = this.waypoints[idx + 1];
+            segmentDuration = wpB.timeOffset - wpA.timeOffset;
+            localTime = this.currentTime - wpA.timeOffset;
+        } else {
+            // Loop segment (Last -> First)
+            wpA = this.waypoints[this.waypoints.length - 1];
+            wpB = this.waypoints[0];
+            segmentDuration = loopDuration;
+            localTime = this.currentTime - this.totalDuration;
+        }
 
         // Local time progress between 0.0 and 1.0
-        const segmentDuration = wpB.timeOffset - wpA.timeOffset;
         let t = 0;
         if (segmentDuration > 0) {
-           t = (this.currentTime - wpA.timeOffset) / segmentDuration;
+           t = localTime / segmentDuration;
         }
 
         // Apply easing
@@ -101,7 +115,15 @@ export class Animator {
             const valA = wpA.view[k];
             const valB = wpB.view[k];
             if (typeof valA === 'number' && typeof valB === 'number') {
-                targetState.view[k] = valA + (valB - valA) * t;
+                if (k === 'pan' || k === 'tilt') {
+                    // Shortest arc interpolation for angles (radians)
+                    let diff = (valB - valA) % (Math.PI * 2);
+                    if (diff > Math.PI) diff -= Math.PI * 2;
+                    if (diff < -Math.PI) diff += Math.PI * 2;
+                    targetState.view[k] = valA + diff * t;
+                } else {
+                    targetState.view[k] = valA + (valB - valA) * t;
+                }
             } else if (typeof valA === 'boolean') {
                 targetState.view[k] = t < 0.5 ? valA : valB;
             }
