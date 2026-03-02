@@ -37,7 +37,7 @@ export function initViewerUI(viewer) {
 
     togglePanelBtn('toggleUiBtn', 'ui', true);
     togglePanelBtn('toggleMonitorBtn', 'circuitMonitor', true);
-    togglePanelBtn('toggleVgaBtn', 'vgaMonitor', true);
+    togglePanelBtn('toggleVgaBtn', 'vgaMonitor', false); // Hide VGA by default
     togglePanelBtn('toggleLogBtn', 'logPanel', true);
 
     const forceShowPanel = (btnId, panelId) => {
@@ -50,11 +50,76 @@ export function initViewerUI(viewer) {
             btn.style.borderColor = '#0f0';
         }
     };
+    
+    const forceHidePanel = (btnId, panelId) => {
+        const btn = doc(btnId);
+        const panel = doc(panelId);
+        if (btn && panel && panel._isVisible) {
+            panel._isVisible = false;
+            panel.style.display = 'none';
+            btn.style.color = '#888';
+            btn.style.borderColor = '#444';
+        }
+    };
+
+    // Close buttons
+    if (doc('close-ui')) doc('close-ui').onclick = () => forceHidePanel('toggleUiBtn', 'ui');
+    if (doc('close-circuitMonitor')) doc('close-circuitMonitor').onclick = () => forceHidePanel('toggleMonitorBtn', 'circuitMonitor');
+    if (doc('close-vgaMonitor')) doc('close-vgaMonitor').onclick = () => forceHidePanel('toggleVgaBtn', 'vgaMonitor');
+    if (doc('close-logPanel')) doc('close-logPanel').onclick = () => forceHidePanel('toggleLogBtn', 'logPanel');
+    
+    // Scale buttons
+    const vgaCanvas = doc('vgaCanvas');
+    const vgaPanelContent = doc('vgaMonitorContent');
+    const btnScale05 = doc('scale-vga-05');
+    const btnScale10 = doc('scale-vga-10');
+    
+    // Store current scale globally attached to canvas node
+    if (vgaCanvas) vgaCanvas._vgaScale = 0.5;
+    
+    const setVgaScale = (scale) => {
+        if (!vgaCanvas) return;
+        vgaCanvas._vgaScale = scale;
+        
+        // Refresh canvas visual CSS scaling immediately 
+        vgaCanvas.style.width = (vgaCanvas.width * scale) + 'px';
+        vgaCanvas.style.height = (vgaCanvas.height * scale) + 'px';
+        
+        // Ensure the panel container stays tight around the scaled canvas
+        const panelContent = doc('vgaMonitorContent');
+        if (panelContent) {
+            panelContent.style.width = (vgaCanvas.width * scale + 24) + 'px'; 
+        }
+        
+        if (scale === 0.5) {
+            if (btnScale05) btnScale05.style.color = '#0f0';
+            if (btnScale10) btnScale10.style.color = '#888';
+        } else {
+            if (btnScale05) btnScale05.style.color = '#888';
+            if (btnScale10) btnScale10.style.color = '#0f0';
+        }
+    };
+    
+    // Default to 0.5x visually
+    setVgaScale(0.5);
+    
+    if (btnScale05) btnScale05.onclick = () => setVgaScale(0.5);
+    if (btnScale10) btnScale10.onclick = () => setVgaScale(1.0);
+
 
     // MARK: Panel Draggability
+    let highestZIndex = 100;
+    const bringToFront = (panel) => {
+        highestZIndex++;
+        panel.style.zIndex = highestZIndex;
+    };
+
     const makeDraggable = (panelId) => {
         const panel = doc(panelId);
         if (!panel) return;
+        
+        panel.addEventListener('mousedown', () => bringToFront(panel));
+
         const header = panel.querySelector('.panel-header');
         if (!header) return;
 
@@ -133,6 +198,11 @@ export function initViewerUI(viewer) {
         if (monitor) monitor.innerHTML = ''; // Force a completely fresh layout on new GDS 
         buildCircuitMonitorUI(viewer);
         updateCircuitMonitorState(viewer);
+        
+        // Auto-hide System Log 2 seconds after circuit is fully loaded and shown
+        setTimeout(() => {
+            forceHidePanel('toggleLogBtn', 'logPanel');
+        }, 2000);
     };
 
     viewer.onUpdateCircuit = (wireData) => {
@@ -699,9 +769,16 @@ export function updateVgaMonitor(viewer, buffer, width, height) {
 
     if (!buffer) return;
 
-    if (canvas.width !== width || canvas.height !== height) {
+    if (canvas.width !== width || canvas.height !== height || placeholder.style.display !== 'none') {
+        // Only trigger layout updates if the native internal buffer dimensions change or if we haven't shown the canvas yet
         canvas.width = width;
         canvas.height = height;
+        
+        // Respect dynamic scale logic visually
+        const scale = canvas._vgaScale || 0.5;
+        canvas.style.width = (width * scale) + 'px';
+        canvas.style.height = (height * scale) + 'px';
+        
         canvas.style.display = 'block';
         placeholder.style.display = 'none';
     }

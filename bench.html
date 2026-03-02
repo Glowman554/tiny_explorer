@@ -135,20 +135,21 @@
 
     <script>
         const GDS_FILES = [
-            "gds/tt_um_microlane_demo.gds:sky130A",
-            "gds/spm.gds:sky130A",
-            "gds/multiplier8.gds:sky130A",
-            "gds/08/tt_um_2048_vga_game.gds:sky130A",
-            "gds/08/tt_um_a1k0n_nyancat.gds:sky130A",
-            "gds/08/tt_um_a1k0n_vgadonut.gds:sky130A",
-            "gds/09/tt_um_a1k0n_nyancat.gds:sky130A",
-            "gds/09/tt_um_oscillating_bones.gds:sky130A",
-            "gds/09/tt_um_rejunity_atari2600.gds.br:sky130A",
-            "gds/09/tt_um_znah_vga_ca.gds:sky130A",
-            "gds/ihp-25a/tt_um_znah_vga_ca.gds:ihp-sg13g2",
-            "gds/sky-25b/tt_um_vga_clock.oas:sky130A",
-            "gds/sky-25b/tt_um_pongsagon_tinygpu_v2.oas:sky130A",
-            "gds/gf-0p2/tt_um_2048_vga_game.oas:gf180mcuD",
+            "gds/tt_um_microlane_demo.gds",
+            "gds/spm.gds",
+            "gds/multiplier8.gds",
+            
+            "gds/08/tt_um_2048_vga_game.gds",
+            "gds/08/tt_um_a1k0n_nyancat.gds",
+            "gds/08/tt_um_a1k0n_vgadonut.gds",
+            "gds/09/tt_um_a1k0n_nyancat.gds",
+            "gds/09/tt_um_oscillating_bones.gds",
+            "gds/09/tt_um_rejunity_atari2600.gds.br",
+            "gds/09/tt_um_znah_vga_ca.gds",
+            "gds/ihp-25a/tt_um_znah_vga_ca.gds",
+            "gds/sky-25b/tt_um_vga_clock.oas",
+            "gds/sky-25b/tt_um_pongsagon_tinygpu_v2.oas",
+            "gds/gf-0p2/tt_um_2048_vga_game.oas",
         ];
 
         const runBtn = document.getElementById('run-btn');
@@ -164,7 +165,6 @@
         function createRow(file) {
             const row = document.createElement('tr');
             row.id = `row-${file.replace(/\//g, '_')}`;
-            const [fUrl, fPdk] = file.split(':');
             row.innerHTML = `
                 <td>${file}</td>
                 <td class="numeric">-</td>
@@ -180,7 +180,7 @@
                 <td class="numeric">-</td>
                 <td class="status-cell pending">Pending...</td>
                 <td style="text-align:center; white-space: nowrap;">
-                    <a href="viewer.html?file=${fUrl}${fPdk ? '&pdk='+fPdk : ''}" target="_blank" class="btn-log" style="text-decoration:none; display:inline-block; border-color:var(--accent-cyan); color:var(--accent-cyan)">View</a>
+                    <a href="viewer.html?file=${file}" target="_blank" class="btn-log" style="text-decoration:none; display:inline-block; border-color:var(--accent-cyan); color:var(--accent-cyan)">View</a>
                 </td>
             `;
             return row;
@@ -235,7 +235,6 @@
                             fileLogs[file] += e.data.message;
                         } else if (e.data.type === 'done') {
                             const stats = e.data.stats;
-                            const [fUrl, fPdk] = file.split(':');
                                 row.innerHTML = `
                                     <td>${file}</td>
                                     <td class="numeric">${(stats.totalBytes/1024/1024).toFixed(2)}</td>
@@ -250,7 +249,7 @@
                                     <td class="numeric">${stats.errors > 0 ? `<span class="badge-error" style="background:rgba(239,68,68,0.1); color:#ef4444; padding:2px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold;">${stats.errors}E</span>` : '0'}</td>
                                     <td class="status-cell"><span class="badge-ok" style="${stats.errors > 0 ? 'background:rgba(239,68,68,0.1); color:#ef4444;' : ''}">${stats.errors > 0 ? 'ERROR' : 'OK'}</span></td>
                                     <td style="text-align:center; white-space: nowrap;">
-                                        <a href="viewer.html?file=${fUrl}${fPdk ? '&pdk='+fPdk : ''}" target="_blank" class="btn-log" style="text-decoration:none; display:inline-block; margin-right:5px; border-color:var(--accent-cyan); color:var(--accent-cyan)">View</a>
+                                        <a href="viewer.html?file=${file}" target="_blank" class="btn-log" style="text-decoration:none; display:inline-block; margin-right:5px; border-color:var(--accent-cyan); color:var(--accent-cyan)">View</a>
                                         <button class="btn-log" onclick="showLogs('${file}')">Logs</button>
                                     </td>
                                 `;
@@ -279,11 +278,9 @@
                         }
                     }
 
-                    const [fUrl, fPdk] = file.split(':');
                     worker.postMessage({ 
                         type: 'start', 
-                        gdsUrl: new URL(fUrl, window.location.href).href, 
-                        pdk: fPdk,
+                        gdsUrl: new URL(file, window.location.href).href, 
                         options: { returnGeometry: false } 
                     });
                 }

@@ -10,7 +10,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     const params = new URLSearchParams(window.location.search);
     const gds = params.get('file') || 'gds/09/tt_um_znah_vga_ca.gds';
-    const pdk = params.get('pdk') || 'sky130A';
+    const pdk = params.get('pdk') || '';
     
     viewer.loadGDS(gds, pdk);
 });

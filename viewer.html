@@ -44,7 +44,7 @@
         #ui { top: 45px; left: 10px; width: 220px; max-height: calc(90vh - 35px); }
 
         #circuitMonitor { top: 10px; right: 10px; width: 280px; max-height: 45vh; }
-        #vgaMonitor { top: 48vh; right: 10px; width: 280px; max-height: 45vh; }
+        #vgaMonitor { top: 48vh; right: 10px; }
         
         #logPanel {
             bottom: 10px; right: 10px;
@@ -142,6 +142,7 @@
         .monitor-btn.state-high { background: #321; color: #ffa658; border-color: #642; }
         .monitor-btn.state-flipped { background: #440; color: #ff0; border-color: #ff0; box-shadow: 0 0 5px rgba(255, 255, 0, 0.4); }
         .monitor-special-btn.state-flipped { background: #440; color: #ff0; border-color: #ff0; box-shadow: 0 0 5px rgba(255, 255, 0, 0.4); }
+
         .monitor-group-label { font-size: 9px; color: #555; text-transform: uppercase; margin-bottom: 4px; margin-top: 8px; }
         
         .dual-slider-container {
@@ -233,7 +234,12 @@
     </div>
 
     <div id="ui" class="panel">
-        <div class="panel-header">Controls</div>
+        <div class="panel-header">
+            <span>Controls</span>
+            <div style="display:flex; gap:4px; font-size:10px; cursor:pointer;">
+                <span id="close-ui" style="padding:0 4px; background:#400; border-radius:2px; border:1px solid #600;">×</span>
+            </div>
+        </div>
         <div class="panel-content">
             <div class="control-group">
                 <button id="btnReset">Reset View</button>
@@ -310,7 +316,12 @@
 
 
     <div id="circuitMonitor" class="panel">
-        <div class="panel-header">Circuit Monitoring</div>
+        <div class="panel-header">
+            <span>Circuit Monitoring</span>
+            <div style="display:flex; gap:4px; font-size:10px; cursor:pointer;">
+                <span id="close-circuitMonitor" style="padding:0 4px; background:#400; border-radius:2px; border:1px solid #600;">×</span>
+            </div>
+        </div>
         <div class="panel-content" id="circuitControls" style="border-bottom: 1px solid #333; padding-bottom: 5px; margin-bottom: 5px; display: none;">
             <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 5px;">
                 <button id="btnPlayPause" style="margin: 0; padding: 2px 6px; width: 30px; border-radius: 4px; border: 1px solid #444; background: #222; color: #aa0; cursor: pointer; font-family: monospace;">▶</button>
@@ -331,18 +342,30 @@
     <div id="vgaMonitor" class="panel">
         <div class="panel-header" style="justify-content: space-between;">
             <span>VGA Monitor</span>
-            <span id="vgaRayPos" style="font-size: 10px; font-weight: normal; color: #888; font-family: monospace;">Ray: X:0 Y:0</span>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span id="vgaRayPos" style="font-size: 10px; font-weight: normal; color: #888; font-family: monospace;">Ray: X:0 Y:0</span>
+            </div>
+            <div style="display:flex; gap:4px; font-size:10px; cursor:pointer; align-items:center;">
+                <span id="scale-vga-05" style="padding:0 4px; background:#222; border-radius:2px; border:1px solid #444; color:#0f0;">0.5x</span>
+                <span id="scale-vga-10" style="padding:0 4px; background:#222; border-radius:2px; border:1px solid #444; color:#888;">1.0x</span>
+                <span id="close-vgaMonitor" style="padding:0 4px; background:#400; border-radius:2px; border:1px solid #600; margin-left:4px;">×</span>
+            </div>
         </div>
-        <div id="vgaMonitorContent" class="panel-content">
-            <div style="background:#000; border-radius:4px; margin-top:5px; overflow:hidden; border: 1px solid #222;">
-                <canvas id="vgaCanvas" style="width:100%; height:auto; image-rendering:pixelated; display:none;"></canvas>
-                <div id="vgaPlaceholder" style="padding:40px; text-align:center; color:#444; font-size:12px;">VGA not initialized</div>
+        <div id="vgaMonitorContent" class="panel-content" style="padding: 10px;">
+            <div style="background:#000; border-radius:4px; overflow:hidden; border: 1px solid #222; display:flex; justify-content:center; align-items:center;">
+                <canvas id="vgaCanvas" width="800" height="525" style="image-rendering:pixelated; display:none; transform-origin: top left; transition: transform 0.2s ease, width 0.2s ease, height 0.2s ease;"></canvas>
+                <div id="vgaPlaceholder" style="padding:40px; text-align:center; color:#444; font-size:12px; width: 400px; height: 262px; display: flex; align-items: center; justify-content: center;">VGA not initialized</div>
             </div>
         </div>
     </div>
 
     <div id="logPanel" class="panel">
-        <div class="panel-header">System Log</div>
+        <div class="panel-header">
+            <span>System Log</span>
+            <div style="display:flex; gap:4px; font-size:10px; cursor:pointer;">
+                <span id="close-logPanel" style="padding:0 4px; background:#400; border-radius:2px; border:1px solid #600;">×</span>
+            </div>
+        </div>
         <div class="panel-content" style="max-height: 250px;">
             <pre id="logContainer"></pre>
         </div>

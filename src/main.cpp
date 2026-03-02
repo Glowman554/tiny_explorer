@@ -40,13 +40,14 @@ struct VGASimulator {
     int clk = -1, rst_n = -1, ena = -1;
     int in_pins[8] = {-1,-1,-1,-1,-1,-1,-1,-1}, out_pins[8] = {-1,-1,-1,-1,-1,-1,-1,-1};
     
-    int width = 1000, height = 600;
+    int width = 800, height = 525;
+    int max_width = 1200, max_height = 800;
     int ray_x = 0, ray_y = 0;
     bool last_hsync = false, last_vsync = false;
     std::vector<uint8_t> vga_buffer;
 
     VGASimulator(Circuit& c) : circuit(c) {
-        vga_buffer.assign(width * height * 3, 0);
+        vga_buffer.assign(max_width * max_height * 3, 0);
     }
 
     void init(const std::vector<std::pair<int, std::string>>& labels) {
@@ -139,8 +140,20 @@ struct VGASimulator {
         bool r0 = val(4), g0 = val(5), b0 = val(6), hsync = val(7);
 
         // Sync logic
-        if (!hsync && last_hsync) { ray_x = 0; ray_y++; }
-        if (!vsync && last_vsync) { ray_x = 0; ray_y = 0; }
+        if (!hsync && last_hsync) {
+            if (ray_x > 0 && ray_x <= max_width) {
+                width = ray_x;
+            }
+            ray_x = 0; 
+            ray_y++; 
+        }
+        if (!vsync && last_vsync) {
+            if (ray_y > 0 && ray_y <= max_height) {
+                height = ray_y;
+            }
+            ray_x = 0; 
+            ray_y = 0; 
+        }
         
         if (ray_x < width && ray_y < height) {
             int idx = (ray_y * width + ray_x) * 3;
@@ -340,11 +353,12 @@ int main() {
     //const char * path = "gds/ihp-25a/tt_um_znah_vga_ca.gds";
     //const char * path = "gds/sky-25b/tt_um_pongsagon_tinygpu_v2.oas";
     //const char * path = "gds/09/tt_um_rejunity_atari2600.gds";
-    const char * path = "gds/09/tt_um_znah_vga_ca.gds";
+    //const char * path = "gds/09/tt_um_znah_vga_ca.gds";
     //const char * path = "gds/gf-0p2/tt_um_2048_vga_game.oas";
     //const char * path = "gds/09/tt_um_a1k0n_nyancat.gds";
     //const char * path = "gds/08/tt_um_a1k0n_vgadonut.gds";
     //const char * path = "gds/09/tt_um_oscillating_bones.gds";
+    const char * path = "gds/multiplier8.oas";
     printf("Loading: %s\n", path);
 
     Module* mod = g_mod();

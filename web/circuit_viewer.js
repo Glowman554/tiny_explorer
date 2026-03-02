@@ -189,6 +189,7 @@ export class CircuitViewer {
         this.worker = null;
         this.wireNames = [];
         this.netAreas = {};
+        this.netBounds = {};
         
         this.highlightNet = -1;
         this.highlightedCount = 0;
@@ -517,6 +518,23 @@ export class CircuitViewer {
         }
     }
 
+    projectToScreen(x, y, z, viewMat) {
+        const x_clip = viewMat[0]*x + viewMat[4]*y + viewMat[8]*z  + viewMat[12];
+        const y_clip = viewMat[1]*x + viewMat[5]*y + viewMat[9]*z  + viewMat[13];
+        const z_clip = viewMat[2]*x + viewMat[6]*y + viewMat[10]*z + viewMat[14];
+        const w_clip = viewMat[3]*x + viewMat[7]*y + viewMat[11]*z + viewMat[15];
+
+        if (w_clip <= 0) return null;
+
+        const ndcX = x_clip / w_clip;
+        const ndcY = y_clip / w_clip;
+
+        const screenX = (ndcX + 1.0) * 0.5 * this.canvas.clientWidth;
+        const screenY = (1.0 - ndcY) * 0.5 * this.canvas.clientHeight;
+
+        return { x: screenX, y: screenY, z: z_clip / w_clip };
+    }
+
     log(msg) {
         this.onLog?.(msg);
     }
@@ -591,6 +609,7 @@ export class CircuitViewer {
         }
 
         this.netAreas = {};
+        this.netBounds = {};
         this.treeAreas = {};
         this.treeToNets = {};
         this.bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
@@ -624,6 +643,14 @@ export class CircuitViewer {
                     if (net > maxNet) maxNet = net;
                     const area = Math.abs((x2 - x1) * (y2 - y1));
                     this.netAreas[net] = (this.netAreas[net] || 0) + area;
+                    if (!this.netBounds[net]) {
+                        this.netBounds[net] = { minX: x1, minY: y1, maxX: x2, maxY: y2 };
+                    } else {
+                        if (x1 < this.netBounds[net].minX) this.netBounds[net].minX = x1;
+                        if (y1 < this.netBounds[net].minY) this.netBounds[net].minY = y1;
+                        if (x2 > this.netBounds[net].maxX) this.netBounds[net].maxX = x2;
+                        if (y2 > this.netBounds[net].maxY) this.netBounds[net].maxY = y2;
+                    }
                     if (tree !== -1) {
                         this.treeAreas[tree] = (this.treeAreas[tree] || 0) + area;
                         if (!this.treeToNets[tree]) this.treeToNets[tree] = new Set();
