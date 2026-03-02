@@ -50,9 +50,9 @@ struct VGASimulator {
         vga_buffer.assign(max_width * max_height * 3, 0);
     }
 
-    void init(const std::vector<std::pair<int, std::string>>& labels) {
-        for (const auto& [id, name] : labels) {
-            name2id[name] = id;
+    void init(const std::vector<CircuitExtractor::LabeledWire>& labels) {
+        for (const auto& lw : labels) {
+            name2id[lw.name] = lw.id;
         }
         
         // Find essential pins
@@ -268,7 +268,7 @@ extern "C" {
     int wasm_circuit_get_labeled_id(uint32_t idx) {
         const auto & lw = g_mod()->extractor.labeledWires;
         if (idx < lw.size()) {
-            return lw[idx].first;
+            return lw[idx].id;
         }
         return -1;
     }
@@ -277,7 +277,7 @@ extern "C" {
     const char* wasm_circuit_get_labeled_name(uint32_t idx) {
         const auto & lw = g_mod()->extractor.labeledWires;
         if (idx < lw.size()) {
-            return lw[idx].second.c_str();
+            return lw[idx].name.c_str();
         }
         return nullptr;
     }

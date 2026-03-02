@@ -540,6 +540,7 @@ export class CircuitViewer {
     }
 
     async loadGDS(url, pdk) {
+        this.currentUrl = url;
         this.vgaRunning = false;
         if (this.vgaInterval) {
             clearInterval(this.vgaInterval);

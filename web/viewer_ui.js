@@ -290,24 +290,60 @@ export function initViewerUI(viewer) {
     if (btnPlayPause) {
         btnPlayPause.onclick = () => {
             isPaused = !isPaused;
+            if (!isPaused && stateMixSlider) {
+                stateMixSlider.value = 0.75;
+                viewer.view.stateMix = 0.75;
+                viewer.requestFrame();
+            }
             updateSimConfig();
         };
     }
 
     if (simSpeed) simSpeed.oninput = () => {
-        if (isPaused) isPaused = false;
+        if (isPaused) {
+            isPaused = false;
+            if (stateMixSlider) {
+                stateMixSlider.value = 0.75;
+                viewer.view.stateMix = 0.75;
+                viewer.requestFrame();
+            }
+        }
         updateSimConfig();
     };
     if (autoClockToggle) autoClockToggle.onchange = updateSimConfig;
     
     // The worker now drives VGA updates and ray properties, remove UI driving
     viewer.onVgaFrame = (buffer, width, height, rayX, rayY) => {
-        updateVgaMonitor(viewer, buffer, width, height);
+        updateVgaMonitor(viewer, buffer, width, height, rayX, rayY);
         const rayLabel = document.getElementById('vgaRayPos');
         if (rayLabel) rayLabel.innerText = `Ray: X:${rayX} Y:${rayY}`;
     };
 
     if (doc('btnReset')) doc('btnReset').onclick = () => viewer.resetView();
+    if (doc('btnDownload')) doc('btnDownload').onclick = async () => {
+        if (!viewer.currentUrl) return;
+        const btn = doc('btnDownload');
+        const oldText = btn.innerText;
+        try {
+            btn.innerText = 'Downloading...';
+            btn.disabled = true;
+            const url = viewer.currentUrl;
+            const name = url.split('/').pop().split('?')[0];
+            const response = await fetch(url);
+            const blob = await response.blob();
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = name;
+            link.click();
+            URL.revokeObjectURL(link.href);
+        } catch (e) {
+            console.error('Download failed:', e);
+            viewer.log(`ERROR: Download failed: ${e.message}\n`);
+        } finally {
+            btn.innerText = oldText;
+            btn.disabled = false;
+        }
+    };
 
     const layerMinIdx = doc('layerMinIdx');
     if (layerMinIdx) layerMinIdx.oninput = () => rebuildLayerUI(viewer);
@@ -444,6 +480,8 @@ export function initViewerUI(viewer) {
             if (btnPlayAnim) btnPlayAnim.click();
         }
     });
+
+    updateSimConfig();
 }
 
 // MARK: - Tree Hierarchy UI
@@ -763,7 +801,7 @@ function updateCircuitMonitorState(viewer, wireData) {
 }
 
 // MARK: - CRT / VGA View
-export function updateVgaMonitor(viewer, buffer, width, height) {
+export function updateVgaMonitor(viewer, buffer, width, height, rayX, rayY) {
     const canvas = document.getElementById('vgaCanvas');
     const placeholder = document.getElementById('vgaPlaceholder');
     if (!canvas || !placeholder) return;
@@ -797,6 +835,13 @@ export function updateVgaMonitor(viewer, buffer, width, height) {
     }
 
     ctx.putImageData(imageData, 0, 0);
+
+    // Draw ray spot
+    if (typeof rayX === 'number' && typeof rayY === 'number') {
+        ctx.fillStyle = '#f00';
+        ctx.fillRect(rayX - 1, rayY - 4, 3, 9);
+        ctx.fillRect(rayX - 4, rayY - 1, 9, 3);
+    }
 }
 
 // MARK: - Utilities

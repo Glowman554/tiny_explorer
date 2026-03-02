@@ -57,10 +57,13 @@ inline void resolveLabelsGdstk(const gdstk::Cell* gcell, Cell& cell, const std::
             continue;
         }
 
-        if (cell.label2rect.count(label->text)) {
-            cell.wireDSU.unite(cell.label2rect[label->text], foundRectIdx);
+        if (cell.labels.count(label->text)) {
+            cell.wireDSU.unite(cell.labels[label->text].rectIdx, foundRectIdx);
+            if (targetLid > cell.labels[label->text].layerId) {
+                cell.labels[label->text] = {foundRectIdx, targetLid};
+            }
         } else {
-            cell.label2rect[label->text] = foundRectIdx;
+            cell.labels[label->text] = {foundRectIdx, targetLid};
         }
         
         // Power/Ground Detection
@@ -168,8 +171,8 @@ inline void assignWireIDs(Cell& cell) {
 
     // 2. Assign IDs to labeled wires first to keep them stable
     int next_id = 2;
-    for (auto const& [name, rIdx] : cell.label2rect) {
-        int root = cell.wireDSU.find(rIdx);
+    for (auto const& [name, l] : cell.labels) {
+        int root = cell.wireDSU.find(l.rectIdx);
         if (cell.rect2wire[root] == DSU::NeedsID) {
             cell.rect2wire[root] = next_id++;
         }

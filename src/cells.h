@@ -38,7 +38,8 @@ struct Cell {
     DSU wireDSU;
     std::vector<int> rect2wire; // Mapping from rect index to dense wire ID
     uint32_t wireCount = 0;
-    std::map<std::string, int32_t> label2rect;
+    struct Label { int32_t rectIdx; LayerID layerId; };
+    std::map<std::string, Label> labels;
     std::vector<FET> fets;
     
     // Special Nets

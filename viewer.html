@@ -241,8 +241,9 @@
             </div>
         </div>
         <div class="panel-content">
-            <div class="control-group">
-                <button id="btnReset">Reset View</button>
+            <div class="control-group" style="display: flex; gap: 5px;">
+                <button id="btnReset" style="flex: 1; margin-top: 0;">Reset View</button>
+                <button id="btnDownload" style="flex: 1; margin-top: 0; border-color: #0c0; color: #0c0;">Download</button>
             </div>
             <div class="control-group">
                 <label>Highlight Trees</label>
@@ -326,12 +327,12 @@
             <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 5px;">
                 <button id="btnPlayPause" style="margin: 0; padding: 2px 6px; width: 30px; border-radius: 4px; border: 1px solid #444; background: #222; color: #aa0; cursor: pointer; font-family: monospace;">▶</button>
                 <label style="font-size: 10px; color:#ccc; margin-left: 3px;">Speed:</label>
-                <input type="range" id="simSpeed" min="1" max="100" value="1" style="flex: 1;" title="1=Slowest, 100=Max">
+                <input type="range" id="simSpeed" min="1" max="100" value="50" style="flex: 1;" title="1=Slowest, 100=Max">
                 <span id="simSpeedLabel" style="font-size: 10px; color:#aa0; width: 45px; text-align: right; font-family: monospace;">PAUSED</span>
             </div>
             <div style="display: flex; gap: 5px; align-items: center;">
                 <label style="font-size: 10px; color:#ccc;">Auto Clock:</label>
-                <input type="checkbox" id="autoClockToggle">
+                <input type="checkbox" id="autoClockToggle" checked>
             </div>
         </div>
         <div id="circuitMonitorContent" class="panel-content" style="padding-top: 0;">

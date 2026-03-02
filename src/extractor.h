@@ -34,7 +34,8 @@ struct CircuitExtractor {
     std::vector<int> instOffsets;
     std::vector<int> segment2flat;
     DSU globalDSU;
-    std::vector<std::pair<int, std::string>> labeledWires;
+    struct LabeledWire { int id; std::string name; LayerID layer; };
+    std::vector<LabeledWire> labeledWires;
     DSU componentDSU;
     std::vector<int> wire2root;
 
@@ -239,12 +240,15 @@ struct CircuitExtractor {
         
         int next_id = 2;
         const Cell& top = cells[instances[0].cell_id];  
-        for (auto const& [name, rIdx] : top.label2rect) {
-            int root = globalDSU.find(top.rect2wire[rIdx]);
+        for (auto const& [name, l] : top.labels) {
+            int root = globalDSU.find(top.rect2wire[l.rectIdx]);
             if (segment2flat[root] == DSU::NeedsID) {
                 segment2flat[root] = next_id++;
             }
-            labeledWires.push_back({segment2flat[root], name});
+            // User requested: Only top cell labels MET3 and above propagate to UI
+            if (l.layerId >= L_MET2) {
+                labeledWires.push_back({segment2flat[root], name, l.layerId});
+            }
         }
 
         int wireCount = globalDSU.assign_ids(segment2flat, next_id);
@@ -358,10 +362,10 @@ struct CircuitExtractor {
             const Cell& cell = cells[inst.cell_id];
             
             std::string label = "";
-            for (const auto& [l_name, r_idx] : cell.label2rect) {
-                if (cell.rect2wire[r_idx] == local_wire) {
+            for (const auto& [name, lbl] : cell.labels) {
+                if (cell.rect2wire[lbl.rectIdx] == local_wire) {
                     if (!label.empty()) label += ", ";
-                    label += l_name;
+                    label += name;
                 }
             }
             
