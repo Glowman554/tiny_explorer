@@ -347,7 +347,8 @@ int main() {
     //const char * path = "gds/09/tt_um_oscillating_bones.gds", *pdk = "sky130A";
     printf("Loading: %s\n", path);
 
-    CircuitExtractor proc;
+    Module* mod = g_mod();
+    CircuitExtractor& proc = mod->extractor;
     proc.pdk = pdk;
 
     auto t0 = std::chrono::high_resolution_clock::now();
