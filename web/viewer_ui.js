@@ -658,6 +658,10 @@ function buildCircuitMonitorUI(viewer) {
         return;
     }
 
+    // Regex allows "{IO,UI,UO,UIO}_*", clk, ena, rst(_n), arrays with simple names (x[0..7], a[0..7])
+    const importantRegex = /^(?:[iu]o(_in|_out)?|uio(_in|_out)?|clk|ena|rst_?n?|[a-z]{1,2})$/i;
+    const isImportant = (name) => importantRegex.test(name) || /^(?:io|ui|uo|uio)_/i.test(name);
+
     // Filter and group signals (Only done once on load)
     const groupPattern = /^(.+)\[(\d+)\]$/;
     const groupsMap = new Map();
@@ -686,18 +690,26 @@ function buildCircuitMonitorUI(viewer) {
     const controlsUI = document.getElementById('circuitControls');
     if (controlsUI) controlsUI.style.display = 'block';
 
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    details.appendChild(summary);
+    
+    let hiddenCount = 0;
+
     // Store a map of how to fast-update groups on the DOM parent
     viewer._uiGroupNodes = [];
     viewer._uiButtonNodes = []; // list of {id, element}
 
-    // 1. Single Bits Row
-    if (singleBits.length > 0) {
+    const renderSingleBits = (wires, parent, filter) => {
+        const filtered = wires.filter(w => filter(w.name));
+        if (filtered.length === 0) return 0;
+        
         let specialRow = document.createElement('div');
         specialRow.className = 'monitor-special-row';
         specialRow.style.flexWrap = 'wrap';
-        monitor.appendChild(specialRow);
+        parent.appendChild(specialRow);
         
-        singleBits.forEach(wire => {
+        filtered.forEach(wire => {
             let btn = document.createElement('div');
             btn.className = 'monitor-special-btn';
             btn.innerText = wire.name;
@@ -707,22 +719,29 @@ function buildCircuitMonitorUI(viewer) {
             specialRow.appendChild(btn);
             viewer._uiButtonNodes.push({ wireId: wire.id, el: btn, isGroup: false });
         });
-    }
+        return filtered.length;
+    };
+
+    // 1. Important Single Bits
+    renderSingleBits(singleBits, monitor, isImportant);
 
     // 2. Groups
     const sortedGroupNames = Array.from(groupsMap.keys()).sort();
     sortedGroupNames.forEach(groupName => {
         const groupWires = groupsMap.get(groupName);
-        
+        const important = isImportant(groupName);
+        const parent = important ? monitor : details;
+        if (!important) hiddenCount++;
+
         let label = document.createElement('div');
         label.className = 'monitor-group-label';
-        monitor.appendChild(label);
+        parent.appendChild(label);
 
         let grid = document.createElement('div');
         grid.className = 'monitor-grid';
-        monitor.appendChild(grid);
+        parent.appendChild(grid);
         
-        const isTTPort = ['ui_in', 'uo_out', 'uio_in', 'uio_out'].includes(groupName);
+        const isTTPort = ['ui_in', 'uo_out', 'uio_in', 'uio_out', 'uo', 'ui', 'uio'].includes(groupName.toLowerCase());
         const count = Math.max(isTTPort ? 8 : 0, groupWires.length);
 
         const groupDefinition = {
@@ -754,6 +773,15 @@ function buildCircuitMonitorUI(viewer) {
         
         viewer._uiGroupNodes.push(groupDefinition);
     });
+
+    // 3. Hidden Single Bits
+    const count = renderSingleBits(singleBits, details, (n) => !isImportant(n));
+    if (count) hiddenCount += count;
+
+    if (hiddenCount > 0) {
+        summary.innerText = `${hiddenCount} hidden signals...`;
+        monitor.appendChild(details);
+    }
 }
 
 function updateCircuitMonitorState(viewer, wireData) {
