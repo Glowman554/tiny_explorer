@@ -18,7 +18,7 @@ export function initViewerUI(viewer) {
         if (!btn || !panel) return;
         panel._isVisible = defaultVisible;
         const update = () => {
-            panel.style.display = panel._isVisible ? 'flex' : 'none';
+            panel.classList.toggle('hidden', !panel._isVisible);
             btn.classList.toggle('btn-active', panel._isVisible);
             btn.classList.toggle('btn-inactive', !panel._isVisible);
         };
@@ -39,7 +39,7 @@ export function initViewerUI(viewer) {
         const panel = doc(panelId);
         if (btn && panel && !panel._isVisible) {
             panel._isVisible = true;
-            panel.style.display = 'flex';
+            panel.classList.remove('hidden');
             btn.classList.add('btn-active');
             btn.classList.remove('btn-inactive');
         }
@@ -50,7 +50,7 @@ export function initViewerUI(viewer) {
         const panel = doc(panelId);
         if (btn && panel && panel._isVisible) {
             panel._isVisible = false;
-            panel.style.display = 'none';
+            panel.classList.add('hidden');
             btn.classList.add('btn-inactive');
             btn.classList.remove('btn-active');
         }
@@ -64,7 +64,6 @@ export function initViewerUI(viewer) {
     
     // Scale buttons
     const vgaCanvas = doc('vgaCanvas');
-    const vgaPanelContent = doc('vgaMonitorContent');
     const btnScale05 = doc('scale-vga-05');
     const btnScale10 = doc('scale-vga-10');
     
@@ -82,7 +81,9 @@ export function initViewerUI(viewer) {
         // Ensure the panel container stays tight around the scaled canvas
         const panelContent = doc('vgaMonitorContent');
         if (panelContent) {
-            panelContent.style.width = (vgaCanvas.width * scale + 24) + 'px'; 
+            // We set the container width to match the scaled canvas
+            // This keeps the parent panel tight
+            panelContent.style.width = (vgaCanvas.width * scale) + 'px';
         }
         
         if (scale === 0.5) {
@@ -119,13 +120,13 @@ export function initViewerUI(viewer) {
     viewer.onProgress = (msg) => {
         if (loading) {
             loading.innerText = msg;
-            loading.style.display = 'block';
+            loading.classList.remove('hidden');
         }
         forceShowPanel('toggleLogBtn', 'logPanel');
     };
 
     viewer.onLoaded = () => {
-        if (loading) loading.style.display = 'none';
+        if (loading) loading.classList.add('hidden');
         rebuildLayerUI(viewer);
         updateTreeListUI(viewer);
         
@@ -152,10 +153,10 @@ export function initViewerUI(viewer) {
         updateCircuitMonitorState(viewer, wireData);
     };
 
-    viewer.onVgaFrame = (buffer, width, height, rayX, rayY) => {
-        updateVgaMonitor(viewer, buffer, width, height, rayX, rayY);
+    viewer.onVgaFrame = vga => {
+        updateVgaMonitor(viewer, vga);
         const rayLabel = document.getElementById('vgaRayPos');
-        if (rayLabel) rayLabel.innerText = `Ray: X:${rayX} Y:${rayY}`;
+        if (rayLabel) rayLabel.innerText = `Ray: X:${vga.rayX} Y:${vga.rayY}`;
     };
     
     if (doc('btnReset')) doc('btnReset').onclick = () => viewer.resetView();
@@ -250,8 +251,8 @@ export function bindAnimationControls(viewer) {
             viewer.animator.clearWaypoints();
             if (btnPlayAnim) {
                 btnPlayAnim.innerText = 'Play Sequence';
-                // Note: Consider extracting this color code (#284) to CSS in the future
-                btnPlayAnim.style.background = '#284';
+                btnPlayAnim.classList.remove('btn-danger');
+                btnPlayAnim.classList.add('btn-success');
             }
             updateWaypointListUI(viewer.animator, wpList);
         };
@@ -269,7 +270,8 @@ export function bindAnimationControls(viewer) {
                     const duration = animTime ? parseFloat(animTime.value) : 2.0;
                     viewer.animator.play(true, duration); // Auto-loop continuously
                     btnPlayAnim.innerText = 'Stop Sequence';
-                    btnPlayAnim.style.background = '#822';
+                    btnPlayAnim.classList.remove('btn-success');
+                    btnPlayAnim.classList.add('btn-danger');
                     viewer.requestFrame();
                 }
             }
@@ -591,7 +593,7 @@ function buildCircuitMonitorUI(viewer) {
     if (!monitor) return;
     
     if (viewer.wireNames.length === 0) {
-        monitor.innerHTML = '<div style="padding:10px; color:#666;">No circuit data</div>';
+        monitor.innerHTML = '<div class="waiting-text">No circuit data</div>';
         return;
     }
 
@@ -621,7 +623,7 @@ function buildCircuitMonitorUI(viewer) {
     const renderSingleBitsHTML = (wires, filterFunc) => {
         const filtered = wires.filter(w => filterFunc(w.name));
         if (!filtered.length) return '';
-        return `<div class="monitor-special-row" style="flex-wrap: wrap;">
+        return `<div class="monitor-special-row flex flex-wrap">
             ${filtered.map(w => `<div class="monitor-special-btn" data-wire-id="${w.id}">${w.name}</div>`).join('')}
         </div>`;
     };
@@ -638,7 +640,7 @@ function buildCircuitMonitorUI(viewer) {
         if (!important) hiddenCount++;
 
         const wireIds = [];
-        let gridHtml = `<div class="monitor-group-label" data-group-name="${groupName}"></div><div class="monitor-grid">`;
+        let gridHtml = `<div class="monitor-group-label" data-group-name="${groupName}"></div><div class="monitor-btn-grid">`;
         
         for (let i = 0; i < count; i++) {
             const wire = groupWires[i];
@@ -646,7 +648,7 @@ function buildCircuitMonitorUI(viewer) {
                 gridHtml += `<div class="monitor-btn" data-wire-id="${wire.id}">${i}</div>`;
                 wireIds.push(wire.id);
             } else {
-                gridHtml += `<div class="monitor-btn" style="opacity:0.15; cursor:default; color:#333;">${i}</div>`;
+                gridHtml += `<div class="monitor-btn empty">${i}</div>`;
                 wireIds.push(null);
             }
         }
@@ -668,7 +670,10 @@ function buildCircuitMonitorUI(viewer) {
     };
 
     const controlsUI = document.getElementById('circuitControls');
-    if (controlsUI) controlsUI.style.display = 'block';
+    if (controlsUI) {
+        controlsUI.classList.remove('hidden');
+        controlsUI.style.display = 'block'; // Fallback for any other logic checking display
+    }
 
     // Build the high-speed Cache Maps
     viewer._uiButtonNodes = Array.from(monitor.querySelectorAll('[data-wire-id]')).map(el => ({
@@ -721,7 +726,7 @@ function updateCircuitMonitorState(viewer, wireData) {
         const dec = val.toString().padStart(3, " ");
         
         // Fast DOM write
-        const content = `${group.name} <span style="font-family:monospace; white-space: pre; color:#aaa; margin-left:8px; text-transform:none; font-size:1.5em;">0x${hex} (${dec})</span>`;
+        const content = `${group.name} <span class="monitor-hex-val">0x${hex} (${dec})</span>`;
         if (group.labelEl.innerHTML !== content) {
             group.labelEl.innerHTML = content;
         }
@@ -729,7 +734,7 @@ function updateCircuitMonitorState(viewer, wireData) {
 }
 
 // MARK: - CRT / VGA View
-export function updateVgaMonitor(viewer, buffer, width, height, rayX, rayY) {
+export function updateVgaMonitor(viewer, {buffer, width, height, rayX, rayY, stride}) {
     const canvas = document.getElementById('vgaCanvas');
     const placeholder = document.getElementById('vgaPlaceholder');
     if (!canvas || !placeholder) return;
@@ -737,29 +742,35 @@ export function updateVgaMonitor(viewer, buffer, width, height, rayX, rayY) {
     if (!buffer) return;
 
     if (canvas.width !== width || canvas.height !== height || placeholder.style.display !== 'none') {
-        // Only trigger layout updates if the native internal buffer dimensions change or if we haven't shown the canvas yet
         canvas.width = width;
         canvas.height = height;
         
-        // Respect dynamic scale logic visually
         const scale = canvas._vgaScale || 0.5;
         canvas.style.width = (width * scale) + 'px';
         canvas.style.height = (height * scale) + 'px';
         
-        canvas.style.display = 'block';
-        placeholder.style.display = 'none';
+        const content = document.getElementById('vgaMonitorContent');
+        if (content) content.style.width = (width * scale) + 'px';
+        
+        canvas.classList.remove('hidden');
+        placeholder.classList.add('hidden');
     }
 
     const ctx = canvas.getContext('2d');
     const imageData = ctx.createImageData(width, height);
     const data = imageData.data;
 
-    // PPM (RGB) to Canvas (RGBA)
-    for (let i = 0, j = 0; i < data.length; i += 4, j += 3) {
-        data[i] = buffer[j];
-        data[i+1] = buffer[j+1];
-        data[i+2] = buffer[j+2];
-        data[i+3] = 255;
+    // RGB (with stride) to Canvas (RGBA)
+    const s = stride || width;
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const di = (y * width + x) * 4;
+            const si = (y * s + x) * 3;
+            data[di] = buffer[si];
+            data[di+1] = buffer[si+1];
+            data[di+2] = buffer[si+2];
+            data[di+3] = 255;
+        }
     }
 
     ctx.putImageData(imageData, 0, 0);

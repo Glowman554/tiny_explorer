@@ -6,291 +6,332 @@
     <title>GDS Rect Viewer</title>
     <style>
         :root {
-            --bg-dark: #111;
-            --text-main: #eee;
-            --text-muted: #aaa;
-            --text-dim: #888;
-            --border-color: #444;
-            --accent-green: #0f0;
-            --panel-bg: rgba(0, 0, 0, 0.85);
-            --input-bg: #1a1a1a;
-            --btn-bg: #2a2a2a;
-            --track-bg: #333;
-            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+            --bg-dark: #0a0a0a;
+            --panel-bg: rgba(10, 10, 10, 0.9);
+            --panel-border: #333;
+            --text-main: #e0e0e0;
+            --text-muted: #888;
+            --text-dim: #555;
+            --accent-green: #00ff00;
+            --accent-blue: #58a6ff;
+            --accent-orange: #ffa658;
+            --accent-red: #ff4444;
+            --accent-yellow: #ffff00;
+            --input-bg: #151515;
+            --btn-bg: #222;
+            --btn-hover: #333;
+            --font-mono: 'JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+            --radius: 6px;
         }
 
-        body { margin: 0; overflow: hidden; background: var(--bg-dark); color: var(--text-main); font-family: sans-serif; }
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: var(--bg-dark); 
+            color: var(--text-main); 
+            font-family: sans-serif;
+        }
+        
         canvas { display: block; width: 100vw; height: 100vh; }
         
+        /* Layout Utilities */
+        .flex { display: flex; }
+        .flex-col { flex-direction: column; }
+        .flex-gap-small { gap: 4px; }
+        .flex-gap-med { gap: 8px; }
+        .flex-1 { flex: 1; }
+        .flex-center { align-items: center; }
+        .flex-between { justify-content: space-between; }
+        .flex-wrap { flex-wrap: wrap; }
+        .hidden { display: none !important; }
+
+        .m-0 { margin: 0 !important; }
+        .mb-2 { margin-bottom: 8px !important; }
+        .mb-4 { margin-bottom: 16px !important; }
+        .mt-4 { margin-top: 16px !important; }
+        .mt-2 { margin-top: 8px !important; }
+        .ml-2 { margin-left: 8px !important; }
+
+        /* Panels */
         .panel {
             position: absolute;
             background: var(--panel-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 12px;
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius);
+            padding: 0;
             pointer-events: auto;
             z-index: 100;
             display: flex;
             flex-direction: column;
-            transition: opacity 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            transition: opacity 0.2s ease, transform 0.2s ease;
         }
 
         .panel-header {
-            font-weight: bold;
-            font-size: 14px;
-            color: var(--accent-green);
+            font-weight: 600;
+            font-size: 11px;
+            color: var(--text-muted);
             cursor: grab;
-            padding-bottom: 8px;
-            border-bottom: 1px solid var(--border-color);
-            margin-bottom: 10px;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--panel-border);
             display: flex;
             justify-content: space-between;
             align-items: center;
             user-select: none;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.05em;
         }
 
-        .panel-header:active {
-            cursor: grabbing;
-        }
-
-        /* Utility classes for JS state updates */
-        .btn-active { color: var(--accent-green) !important; border-color: var(--accent-green) !important; }
-        .btn-inactive { color: var(--text-dim) !important; border-color: var(--border-color) !important; }
-
-        #ui { top: 45px; left: 10px; width: 220px; max-height: calc(90vh - 35px); }
-
-        #circuitMonitor { top: 10px; right: 10px; width: 280px; max-height: 45vh; }
-        #vgaMonitor { top: 48vh; right: 10px; }
-        
-        #logPanel {
-            bottom: 10px; right: 10px;
-            width: 600px;
-            max-height: 300px;
-        }
-
-
+        .panel-header:active { cursor: grabbing; }
 
         .panel-content {
+            padding: 12px;
             overflow-y: auto;
             overflow-x: hidden;
+            flex-grow: 1;
         }
 
-        .control-group { margin-bottom: 15px; }
-        label { display: block; font-size: 11px; margin: 4px 0 2px 0; color: #aaa; text-transform: uppercase; }
+        /* Forms & Inputs */
+        .control-group { margin-bottom: 16px; }
+        .control-group:last-child { margin-bottom: 0; }
         
-        select { width: 100%; background: #1a1a1a; color: #eee; border: 1px solid #444; padding: 4px; font-size: 12px; }
-        button { background: #2a2a2a; color: #eee; border: 1px solid #444; padding: 6px 8px; cursor: pointer; margin-top: 5px; width: 100%; border-radius: 4px; font-size: 12px; }
-        button:hover { background: #3a3a3a; border-color: #666; }
-        
-        .layer-toggle { display: flex; align-items: center; font-size: 12px; color: #eee; text-transform: none; padding: 2px 0; }
-        .layer-toggle input { margin-right: 8px; }
-        .layer-color { width: 12px; height: 12px; display: inline-block; margin-right: 8px; border-radius: 2px; cursor: pointer; }
-        
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 24px; pointer-events: none; z-index: 1000; }
-        
-        #logContainer {
-            font-family: 'JetBrains Mono', 'Fira Code', monospace; 
-            font-size: 11px;
-            white-space: pre;
-            color: #0f0;
-            margin: 0;
+        label { 
+            display: block; 
+            font-size: 10px; 
+            margin-bottom: 6px; 
+            color: var(--text-muted); 
+            text-transform: uppercase; 
+            letter-spacing: 0.02em;
         }
+        
+        input[type="text"], input[type="number"], select {
+            width: 100%;
+            background: var(--input-bg);
+            color: var(--text-main);
+            border: 1px solid var(--panel-border);
+            padding: 6px 8px;
+            font-size: 12px;
+            border-radius: var(--radius);
+            box-sizing: border-box;
+            outline: none;
+            font-family: var(--font-mono);
+        }
+        input:focus, select:focus { border-color: var(--text-dim); }
 
-        #netSearch {
-            width: 100%; background: #1a1a1a; color: #eee; border: 1px solid #444; 
-            padding: 6px; margin-bottom: 5px; box-sizing: border-box; border-radius: 4px;
+        /* Buttons */
+        button, .btn {
+            background: var(--btn-bg);
+            color: var(--text-main);
+            border: 1px solid var(--panel-border);
+            padding: 6px 12px;
+            cursor: pointer;
+            border-radius: var(--radius);
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            user-select: none;
         }
+        button:hover { background: var(--btn-hover); border-color: #555; }
+        button:active { transform: translateY(1px); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-sm { padding: 4px 8px; font-size: 11px; }
+        .btn-xs { padding: 2px 6px; font-size: 10px; }
+        .btn-full { width: 100% !important; }
         
+        .btn-active { color: var(--accent-green) !important; border-color: var(--accent-green) !important; background: rgba(0, 255, 0, 0.02) !important; }
+        .btn-inactive { color: var(--text-dim) !important; border-color: var(--panel-border) !important; }
+        
+        .btn-success { background: rgba(0, 200, 0, 0.1); border-color: #080; color: #0c0; }
+        .btn-success:hover { background: rgba(0, 200, 0, 0.2); }
+        
+        .btn-danger { background: rgba(200, 0, 0, 0.1); border-color: #800; color: #f66; }
+        .btn-danger:hover { background: rgba(200, 0, 0, 0.2); }
+
+        .btn-warning { background: rgba(200, 200, 0, 0.1); border-color: #880; color: #ff0; }
+        
+        .btn-close {
+            width: 18px; height: 18px; padding: 0; line-height: 1;
+            background: rgba(255,0,0,0.1); border: 1px solid rgba(255,0,0,0.2); 
+            color: var(--accent-red); font-size: 14px; border-radius: 4px;
+        }
+        .btn-close:hover { background: var(--accent-red); color: white; border-color: var(--accent-red); }
+
+        /* Sliders */
         input[type="range"] {
             -webkit-appearance: none;
             appearance: none;
             width: 100%;
             height: 4px;
-            background: #333;
+            background: #222;
             border-radius: 2px;
             outline: none;
             margin: 12px 0;
             display: block;
+            border: none;
         }
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
-            appearance: none;
-            width: 14px;
-            height: 14px;
-            background: #0f0;
+            width: 14px; height: 14px;
+            background: var(--accent-green);
             border-radius: 50%;
             cursor: pointer;
-            border: 2px solid #111;
-            box-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+            border: 2px solid #000;
+            box-sizing: border-box;
+            transition: transform 0.1s;
         }
-        input[type="range"]::-webkit-slider-thumb:hover {
-            box-shadow: 0 0 10px rgba(0, 255, 0, 0.8);
-            transform: scale(1.1);
-        }
+        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.1); }
         
-        #btnLogTab {
-            position: absolute; bottom: 10px; right: 10px; width: auto; z-index: 1001; 
-            padding: 4px 15px; background: rgba(0,0,0,0.85); border: 1px solid #444; 
-            border-radius: 4px; color: #0f0; font-family: monospace; font-size: 12px; 
-            font-weight: bold; cursor: pointer;
-        }
-        #btnLogTab:hover { background: #222; border-color: #0f0; }
-        
-        .monitor-controls { display: flex; gap: 5px; margin-bottom: 12px; }
-        .monitor-controls button { flex: 1; margin-top: 0; }
-
-        .monitor-special-row { display: flex; gap: 4px; margin-bottom: 10px; }
-        .monitor-special-btn { 
-            flex: 1; padding: 6px 0; font-size: 10px; text-align: center; border-radius: 4px; 
-            background: #222; border: 1px solid #444; color: #888; cursor: pointer; font-family: monospace;
-            transition: all 0.1s;
-        }
-        .monitor-special-btn.state-low { background: #112; color: #58a6ff; border-color: #235; }
-        .monitor-special-btn.state-high { background: #321; color: #ffa658; border-color: #642; }
-
-        .monitor-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-bottom: 8px; }
-        .monitor-btn { 
-            aspect-ratio: 1; display: flex; align-items: center; justify-content: center; 
-            font-size: 10px; font-weight: bold; border-radius: 4px; border: 1px solid #444;
-            background: #222; color: #666; cursor: pointer; transition: all 0.1s;
-        }
-        .monitor-btn.state-low { background: #112; color: #58a6ff; border-color: #235; }
-        .monitor-btn.state-high { background: #321; color: #ffa658; border-color: #642; }
-        .monitor-btn.state-flipped { background: #440; color: #ff0; border-color: #ff0; box-shadow: 0 0 5px rgba(255, 255, 0, 0.4); }
-        .monitor-special-btn.state-flipped { background: #440; color: #ff0; border-color: #ff0; box-shadow: 0 0 5px rgba(255, 255, 0, 0.4); }
-
-        .monitor-group-label { font-size: 9px; color: #555; text-transform: uppercase; margin-bottom: 4px; margin-top: 8px; }
-        
-        .dual-slider-container {
-            position: relative;
-            width: 100%;
-            height: 30px;
-            margin-top: 5px;
-        }
-        .dual-slider-track {
-            position: absolute;
-            top: 13px;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: #333;
-            border-radius: 2px;
-        }
-        .dual-slider-fill {
-            position: absolute;
-            top: 13px;
-            height: 4px;
-            background: #0f0;
-            border-radius: 2px;
-        }
+        /* Dual Slider */
+        .dual-slider-container { position: relative; width: 100%; height: 24px; margin: 4px 0; }
+        .dual-slider-track { position: absolute; top: 10px; left: 0; right: 0; height: 4px; background: #222; border-radius: 2px; }
+        .dual-slider-fill { position: absolute; top: 10px; height: 4px; background: var(--accent-green); border-radius: 2px; }
         .dual-slider-input {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            -webkit-appearance: none;
-            appearance: none;
-            background: transparent;
-            pointer-events: none;
-            margin: 0;
-            height: 30px;
+            position: absolute; top: 12px; left: 0; width: 100%; height: 14px;
+            -webkit-appearance: none; 
+            appearance: none; 
+            background: none !important; pointer-events: none; margin: 0 !important;
+            border: none !important;
+            transform: translateY(-50%);
         }
         .dual-slider-input::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            pointer-events: auto;
-            width: 14px;
-            height: 14px;
-            background: #0f0;
-            border-radius: 50%;
-            border: 2px solid #111;
-            cursor: pointer;
-            box-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
-            position: relative;
-            z-index: 3;
+            -webkit-appearance: none; pointer-events: auto;
+            width: 14px; height: 14px; background: var(--accent-green); border-radius: 50%;
+            border: 2px solid #000; cursor: pointer;
+            box-sizing: border-box;
+            z-index: 5;
         }
-        .dual-slider-input::-webkit-slider-thumb:hover {
-            box-shadow: 0 0 10px rgba(0, 255, 0, 0.8);
-            transform: scale(1.1);
-        }
-        
-        .layer-badge {
-            display: inline-flex;
-            align-items: center;
-            font-size: 10px;
-            color: #eee;
-            padding: 2px 6px;
-            margin: 2px;
-            background: #222;
-            border-radius: 4px;
-            border: 1px solid #444;
-            transition: opacity 0.2s, background 0.2s;
-        }
-        .layer-badge.hidden-layer {
-            opacity: 0.3;
-            background: transparent;
-        }
-        .layer-badge .layer-color {
-            width: 10px; height: 10px; margin-right: 4px; border-radius: 2px;
-        }
-        
-        /* Hide scrollbars but keep functionality */
-        .panel-content::-webkit-scrollbar { width: 4px; }
-        .panel-content::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
 
-        details {
-            border-top: 1px solid #333;
-            margin-top: 10px;
-            padding-top: 5px;
+        /* Specific Panels */
+        #ui { top: 50px; left: 10px; width: 220px; max-height: calc(95vh - 50px); }
+        #circuitMonitor { top: 10px; right: 10px; width: 300px; max-height: 45vh; }
+        #vgaMonitor { top: 48vh; right: 10px; }
+        #logPanel { bottom: 10px; right: 10px; width: 600px; max-height: 300px; }
+        
+        #topMenu { position: absolute; top: 10px; left: 10px; z-index: 1000; display: flex; gap: 6px; }
+
+        /* Signal Monitor Elements */
+        .monitor-btn-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-bottom: 8px; }
+        .monitor-btn { 
+            aspect-ratio: 1; display: flex; align-items: center; justify-content: center; 
+            font-size: 10px; font-weight: 600; border-radius: 4px; border: 1px solid var(--panel-border);
+            background: #111; color: var(--text-dim); cursor: pointer; transition: all 0.1s;
+            font-family: var(--font-mono);
         }
-        summary {
-            font-size: 10px;
-            color: #555;
-            cursor: pointer;
-            text-transform: uppercase;
-            user-select: none;
-            outline: none;
-            padding: 4px 0;
+        .monitor-btn.state-low { background: #080c14; color: var(--accent-blue); border-color: #1a2a44; }
+        .monitor-btn.state-high { background: #1a1208; color: var(--accent-orange); border-color: #442a1a; }
+        .monitor-btn.state-flipped { border-color: var(--accent-yellow); color: var(--accent-yellow); background: #1a1a00; }
+        .monitor-btn.empty { opacity: 0.15; cursor: default; color: var(--text-dim); }
+
+        .monitor-special-btn { 
+            padding: 6px 8px; font-size: 10px; border-radius: 4px; 
+            background: #111; border: 1px solid var(--panel-border); color: var(--text-dim); cursor: pointer; 
+            font-family: var(--font-mono); transition: all 0.1s;
         }
-        summary:hover { color: #888; }
+        .monitor-special-btn.state-low { background: #080c14; color: var(--accent-blue); border-color: #1a2a44; }
+        .monitor-special-btn.state-high { background: #1a1208; color: var(--accent-orange); border-color: #442a1a; }
+        .monitor-special-btn.state-flipped { border-color: var(--accent-yellow); color: var(--accent-yellow); background: #1a1a00; }
+
+        .monitor-group-label { 
+            font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin: 12px 0 4px 0; 
+            display: flex; justify-content: space-between; align-items: baseline;
+        }
+        .monitor-hex-val { font-family: var(--font-mono); color: var(--text-muted); font-size: 12px; text-transform: none; }
+
+        /* Layers List */
+        .layer-badge {
+            display: inline-flex; align-items: center; font-size: 10px;
+            padding: 3px 8px; margin: 2px; background: #111;
+            border-radius: 4px; border: 1px solid var(--panel-border); cursor: default;
+        }
+        .layer-badge.hidden-layer { opacity: 0.3; background: transparent; }
+        .layer-color { width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; }
+
+        /* Log */
+        #logContainer {
+            font-family: var(--font-mono); font-size: 11px; white-space: pre-wrap; 
+            color: var(--accent-green); margin: 0; line-height: 1.4;
+        }
+        
+        #loading { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            font-size: 18px; font-weight: 500; font-family: var(--font-mono);
+            color: var(--accent-green); pointer-events: none; z-index: 1000;
+            background: rgba(0,0,0,0.9); padding: 20px 40px; border-radius: 50px;
+            border: 1px solid var(--accent-green);
+        }
+
+        /* Scrollbars */
+        .panel-content::-webkit-scrollbar { width: 4px; }
+        .panel-content::-webkit-scrollbar-thumb { background: var(--panel-border); border-radius: 2px; }
+        .panel-content::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        details { border-top: 1px solid #222; margin-top: 12px; }
+        summary { font-size: 10px; color: var(--text-dim); cursor: pointer; text-transform: uppercase; padding: 8px 0; outline: none; }
+        summary:hover { color: var(--text-muted); }
+
+        /* Waypoints */
+        #wpList {
+            font-size: 10px; color: var(--text-dim); margin-top: 8px; 
+            max-height: 60px; overflow-y: auto; border-top: 1px solid var(--panel-border); 
+            padding-top: 4px;
+        }
+
+        /* Circuit Controls Extra Styling */
+        .circuit-controls-active {
+            padding-bottom: 0; flex-grow: 0; 
+            border-bottom: 1px solid var(--panel-border);
+        }
+
+        .waiting-text { padding: 12px; color: var(--text-dim); font-size: 12px; text-align: center; }
+
+        /* VGA Canvas */
+        #vgaCanvas { image-rendering: pixelated; }
+        #vgaMonitorContent { background: #000; position: relative; overflow: hidden; }
+        .tree-list-wrapper { width: 100%; overflow-x: auto; scrollbar-width: thin; }
+        #treeSelect { width: auto; min-width: 100%; }
+        #treeSelect option { white-space: nowrap; padding-right: 20px; }
     </style>
 </head>
 <body>
     <div id="loading">Loading...</div>
     <canvas id="glcanvas"></canvas>
 
-    <div id="topMenu" style="position: absolute; top: 10px; left: 10px; z-index: 1000; display: flex; gap: 5px;">
-        <button id="toggleUiBtn" style="background: #2a2a2a; color: #0f0; border-color: #0f0; width: auto; margin: 0; padding: 4px 10px;">Controls</button>
-        <button id="toggleMonitorBtn" style="background: #2a2a2a; border-color: #444; color: #888; width: auto; margin: 0; padding: 4px 10px;">Monitor</button>
-        <button id="toggleVgaBtn" style="background: #2a2a2a; border-color: #444; color: #888; width: auto; margin: 0; padding: 4px 10px;">VGA</button>
-        <button id="toggleLogBtn" style="background: #2a2a2a; border-color: #444; color: #888; width: auto; margin: 0; padding: 4px 10px;">Log</button>
+    <div id="topMenu">
+        <button id="toggleUiBtn" class="btn-sm btn-active">Controls</button>
+        <button id="toggleMonitorBtn" class="btn-sm btn-inactive">Monitor</button>
+        <button id="toggleVgaBtn" class="btn-sm btn-inactive">VGA</button>
+        <button id="toggleLogBtn" class="btn-sm btn-inactive">Log</button>
     </div>
 
     <div id="ui" class="panel">
         <div class="panel-header">
             <span>Controls</span>
-            <div style="display:flex; gap:4px; font-size:10px; cursor:pointer;">
-                <span id="close-ui" style="padding:0 4px; background:#400; border-radius:2px; border:1px solid #600;">×</span>
-            </div>
+            <button id="close-ui" class="btn-close">×</button>
         </div>
         <div class="panel-content">
-            <div class="control-group" style="display: flex; gap: 5px;">
-                <button id="btnReset" style="flex: 1; margin-top: 0;">Reset View</button>
-                <button id="btnDownload" style="flex: 1; margin-top: 0; border-color: #0c0; color: #0c0;">Download</button>
+            <div class="control-group flex flex-gap-small">
+                <button id="btnReset" class="flex-1">Reset View</button>
+                <button id="btnDownload" class="flex-1 btn-success">Download</button>
             </div>
             <div class="control-group">
                 <label>Highlight Trees</label>
-                <input type="text" id="treeSearch" placeholder="Search tree...">
-                <select id="treeSelect" size="10" multiple></select>
-                <input type="text" id="treeIdList" placeholder="Tree IDs (e.g. 1, 2, 5-10)" style="width: 100%; background: #1a1a1a; color: #eee; border: 1px solid #444; padding: 6px; margin-top: 5px; box-sizing: border-box; border-radius: 4px; font-family: monospace; font-size: 11px;">
-                <div style="display: flex; gap: 5px; margin-top: 5px;">
-                    <button id="btnHighlightIds" style="margin-top: 0; flex: 1;">Highlight IDs</button>
-                    <button id="btnClearTrees" style="margin-top: 0; flex: 1;">Clear</button>
+                <input type="text" id="treeSearch" placeholder="Search tree..." class="mb-4">
+                <div class="tree-list-wrapper">
+                    <select id="treeSelect" size="10" multiple></select>
+                </div>
+                <input type="text" id="treeIdList" placeholder="Tree IDs (e.g. 1, 2, 5-10)" class="mt-4">
+                <div class="flex flex-gap-small mt-4">
+                    <button id="btnHighlightIds" class="flex-1">Highlight</button>
+                    <button id="btnClearTrees" class="flex-1 btn-danger">Clear</button>
                 </div>
             </div>
             <div class="control-group">
-                <label>Layers / State</label>
+                <label>Layers / State Mix</label>
                 <input type="range" id="stateMixSlider" min="0" max="1" step="0.01" value="0">
             </div>
             <div class="control-group">
@@ -313,25 +354,25 @@
                 </select>
             </div>
             <div class="control-group">
-                <div class="layer-toggle">
-                    <input type="checkbox" id="boundaryToggle"> <span>Boundaries</span>
+                <div class="flex flex-center flex-gap-med mb-2">
+                    <input type="checkbox" id="boundaryToggle"> <label class="m-0">Boundaries</label>
                 </div>
-                <div class="layer-toggle">
-                    <input type="checkbox" id="powerNetToggle" checked> <span>Power Nets</span>
+                <div class="flex flex-center flex-gap-med">
+                    <input type="checkbox" id="powerNetToggle" checked> <label class="m-0">Power Nets</label>
                 </div>
             </div>
             <div class="control-group">
                 <label>Animation</label>
-                <div style="display: flex; gap: 5px; margin-bottom: 5px;">
-                    <button id="btnCaptWp" style="margin-top: 0; flex: 1;">Capture</button>
-                    <button id="btnClearWp" style="margin-top: 0; flex: 1;">Clear</button>
+                <div class="flex flex-gap-small mb-4">
+                    <button id="btnCaptWp" class="flex-1">Capture</button>
+                    <button id="btnClearWp" class="flex-1 btn-danger">Clear</button>
                 </div>
-                <div>
+                <div class="mb-4">
                     <label>Transition (s)</label>
-                    <input type="number" id="animTime" value="2.0" step="0.5" min="0.5" style="width: 100%; background: #1a1a1a; color: #eee; border: 1px solid #444; padding: 4px; box-sizing: border-box; border-radius: 4px; font-size: 11px;">
+                    <input type="number" id="animTime" value="2.0" step="0.5" min="0.5">
                 </div>
-                <button id="btnPlayAnim" style="margin-top: 8px; background: #284; border-color: #3a5;">Play Sequence</button>
-                <div id="wpList" style="font-size: 10px; color: #888; margin-top: 8px; max-height: 60px; overflow-y: auto; border-top: 1px solid #333; padding-top: 4px;">
+                <button id="btnPlayAnim" class="btn-full btn-success">Play Sequence</button>
+                <div id="wpList">
                     0 Waypoints
                 </div>
             </div>
@@ -343,66 +384,56 @@
                     <input type="range" class="dual-slider-input" id="layerMinIdx" min="0" max="1" value="0">
                     <input type="range" class="dual-slider-input" id="layerMaxIdx" min="0" max="1" value="1">
                 </div>
-                <div id="layerList" style="margin-top: 8px; display: flex; flex-wrap: wrap;"></div>
+                <div id="layerList" class="flex flex-wrap mt-2"></div>
             </div>
         </div>
     </div>
 
-
-
     <div id="circuitMonitor" class="panel">
         <div class="panel-header">
-            <span>Circuit Monitoring</span>
-            <div style="display:flex; gap:4px; font-size:10px; cursor:pointer;">
-                <span id="close-circuitMonitor" style="padding:0 4px; background:#400; border-radius:2px; border:1px solid #600;">×</span>
-            </div>
+            <span>Circuit Monitor</span>
+            <button id="close-circuitMonitor" class="btn-close">×</button>
         </div>
-        <div id="circuitControls" style="border-bottom: 1px solid #333; padding-bottom: 5px; margin-bottom: 5px; display: none; flex-shrink: 0;">
-            <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 5px;">
-                <button id="btnPlayPause" style="margin: 0; padding: 2px 6px; width: 30px; border-radius: 4px; border: 1px solid #444; background: #222; color: #aa0; cursor: pointer; font-family: monospace;">▶</button>
-                <label style="font-size: 10px; color:#ccc; margin-left: 3px;">Speed:</label>
-                <input type="range" id="simSpeed" min="1" max="100" value="50" style="flex: 1;" title="1=Slowest, 100=Max">
-                <span id="simSpeedLabel" style="font-size: 10px; color:#aa0; width: 45px; text-align: right; font-family: monospace;">PAUSED</span>
+        <div id="circuitControls" class="panel-content circuit-controls-active hidden">
+            <div class="flex flex-center flex-gap-med mb-4">
+                <button id="btnPlayPause" class="btn-xs" style="width: 24px;">▶</button>
+                <label class="m-0">Speed</label>
+                <input type="range" id="simSpeed" min="1" max="100" value="50" class="flex-1 m-0">
+                <span id="simSpeedLabel" class="font-mono text-xs" style="width: 40px; text-align: right; color: var(--accent-orange);">PAUSED</span>
             </div>
-            <div style="display: flex; gap: 5px; align-items: center;">
-                <label style="font-size: 10px; color:#ccc;">Auto Clock:</label>
+            <div class="flex flex-center flex-gap-med mb-4">
                 <input type="checkbox" id="autoClockToggle" checked>
+                <label class="m-0">Auto Clock</label>
             </div>
         </div>
-        <div id="circuitMonitorContent" class="panel-content" style="padding-top: 0;">
-            <div style="padding:10px; color:#666;">Waiting for netlist...</div>
+        <div id="circuitMonitorContent" class="panel-content">
+            <div class="waiting-text">Waiting for netlist...</div>
         </div>
     </div>
 
     <div id="vgaMonitor" class="panel">
-        <div class="panel-header" style="justify-content: space-between;">
+        <div class="panel-header">
             <span>VGA Monitor</span>
-            <div style="display:flex; align-items:center; gap:8px;">
-                <span id="vgaRayPos" style="font-size: 10px; font-weight: normal; color: #888; font-family: monospace;">Ray: X:0 Y:0</span>
-            </div>
-            <div style="display:flex; gap:4px; font-size:10px; cursor:pointer; align-items:center;">
-                <span id="scale-vga-05" style="padding:0 4px; background:#222; border-radius:2px; border:1px solid #444; color:#0f0;">0.5x</span>
-                <span id="scale-vga-10" style="padding:0 4px; background:#222; border-radius:2px; border:1px solid #444; color:#888;">1.0x</span>
-                <span id="close-vgaMonitor" style="padding:0 4px; background:#400; border-radius:2px; border:1px solid #600; margin-left:4px;">×</span>
+            <div class="flex flex-center flex-gap-med">
+                <span id="vgaRayPos" class="font-mono text-xs" style="color:var(--text-dim); margin-right: 8px;">Ray: 0,0</span>
+                <button id="scale-vga-05" class="btn-xs btn-active">0.5x</button>
+                <button id="scale-vga-10" class="btn-xs btn-inactive">1.0x</button>
+                <button id="close-vgaMonitor" class="btn-close ml-2">×</button>
             </div>
         </div>
-        <div id="vgaMonitorContent" class="panel-content" style="padding: 10px;">
-            <div style="background:#000; border-radius:4px; overflow:hidden; border: 1px solid #222; display:flex; justify-content:center; align-items:center;">
-                <canvas id="vgaCanvas" width="800" height="525" style="image-rendering:pixelated; display:none; transform-origin: top left; transition: transform 0.2s ease, width 0.2s ease, height 0.2s ease;"></canvas>
-                <div id="vgaPlaceholder" style="padding:40px; text-align:center; color:#444; font-size:12px; width: 400px; height: 262px; display: flex; align-items: center; justify-content: center;">VGA not initialized</div>
-            </div>
+        <div id="vgaMonitorContent" class="panel-content">
+            <div id="vgaPlaceholder" class="text-dim text-xs" style="padding: 20px;">VGA not initialized</div>
+            <canvas id="vgaCanvas" width="800" height="525" class="hidden"></canvas>
         </div>
     </div>
 
     <div id="logPanel" class="panel">
         <div class="panel-header">
             <span>System Log</span>
-            <div style="display:flex; gap:4px; font-size:10px; cursor:pointer;">
-                <span id="close-logPanel" style="padding:0 4px; background:#400; border-radius:2px; border:1px solid #600;">×</span>
-            </div>
+            <button id="close-logPanel" class="btn-close">×</button>
         </div>
-        <div class="panel-content" style="max-height: 250px; overflow-x: auto;">
-            <pre id="logContainer" style="margin: 0; padding-bottom: 5px;"></pre>
+        <div class="panel-content">
+            <pre id="logContainer"></pre>
         </div>
     </div>
 

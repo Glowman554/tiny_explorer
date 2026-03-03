@@ -207,7 +207,6 @@ export class CircuitViewer {
         this.onUpdateCircuit = null;
         this.onVgaFrame = null;
 
-        this.vga = { width: 0, height: 0, buffer: null };
         this.simSpeed = 0;
         this.autoClock = false;
         this.simInputPauseActive = false;
@@ -560,20 +559,11 @@ export class CircuitViewer {
                 this.log("ERROR: " + data.message);
                 this.onProgress?.("Error: " + data.message);
             } else if (data.type === "done") {
-                if (data.stats.vgaWidth) this.vga.width = data.stats.vgaWidth;
-                if (data.stats.vgaHeight) this.vga.height = data.stats.vgaHeight;
                 this.processParsedData(data.stats, data.wireNames);
             } else if (data.type === "callResult") {
-                if (data.name === "wasm_vga_width") this.vga.width = data.result;
-                if (data.name === "wasm_vga_height") this.vga.height = data.result;
-
                 if (data.wireData) {
                     this.updateNetStatesFromWireData(data.wireData);
                     this.onUpdateCircuit?.(data.wireData);
-                }
-                if (data.vga_buffer) {
-                    this.vga.buffer = data.vga_buffer;
-                    // Ray positions are now passed in data.stats or data directly from worker
                 }
             } else if (data.type === 'simUpdate') {
                 if (this.simInputPauseActive) return; // Drop stale incoming frames while freezing for input manipulation
@@ -582,9 +572,8 @@ export class CircuitViewer {
                     this.updateNetStatesFromWireData(data.wireData);
                     this.onUpdateCircuit?.(data.wireData);
                 }
-                if (data.vga_buffer) {
-                    this.vga.buffer = data.vga_buffer;
-                    this.onVgaFrame?.(data.vga_buffer, this.vga.width, this.vga.height, data.rayX, data.rayY);
+                if (data.vga) {
+                    this.onVgaFrame?.(data.vga);
                 }
             } else if (data.type === 'ack_response') {
                 if (this.workerAckResolve) {

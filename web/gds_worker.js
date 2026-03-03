@@ -21,6 +21,7 @@ let simSpeed = 0;
 let autoClock = false;
 let lastSimUpdate = 0;
 let lastClkVal = 0;
+let pendingVgaTick = false;
 
 const files = new Map();
 
@@ -153,8 +154,6 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
             netlistFETs: parseInt(logBuffer.match(/FETs: (\d+)/)?.[1] || 0),
             warnings: (logBuffer.match(/Warning:/g) || []).length,
             errors: (logBuffer.match(/Error:/g) || []).length,
-            vgaWidth: instance.exports.wasm_vga_width ? instance.exports.wasm_vga_width() : 0,
-            vgaHeight: instance.exports.wasm_vga_height ? instance.exports.wasm_vga_height() : 0
         };
 
         const transferables = [];
@@ -180,6 +179,9 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
         }
 
         const wireNames = getWireNames();
+        clkNetId = -1;
+        lastClkVal = 0;
+        pendingVgaTick = false;
         wireNames.forEach(w => {
             if (/^clk$/i.test(w.name)) clkNetId = w.id;
         });
@@ -262,10 +264,12 @@ function getNetValue(netId) {
 
 function checkClockEdge() {
     const clkVal = getNetValue(clkNetId);
+    let edgeDetected = false;
     if (clkVal === 1 && lastClkVal === 0) {
-        if (instance.exports.wasm_vga_tick) instance.exports.wasm_vga_tick(1);
+        edgeDetected = true;
     }
     lastClkVal = clkVal;
+    return edgeDetected;
 }
 
 function sendSimUpdate() {
@@ -279,14 +283,20 @@ function sendSimUpdate() {
     }
     
     if (instance.exports.wasm_vga_buffer_ptr) {
+        const vga = {
+            stride: instance.exports.wasm_vga_stride(),
+            width: instance.exports.wasm_vga_width(),
+            height: instance.exports.wasm_vga_height(),
+            rayX: instance.exports.wasm_vga_ray_x(),
+            rayY: instance.exports.wasm_vga_ray_y(),
+        };
         const vgaPtr = instance.exports.wasm_vga_buffer_ptr();
         if (vgaPtr) {
             const data = new Uint8Array(instance.exports.memory.buffer, vgaPtr, instance.exports.wasm_vga_buffer_size()).slice();
-            payload.vga_buffer = data;
+            vga.buffer = data;
             transferables.push(data.buffer);
         }
-        payload.rayX = instance.exports.wasm_vga_ray_x ? instance.exports.wasm_vga_ray_x() : 0;
-        payload.rayY = instance.exports.wasm_vga_ray_y ? instance.exports.wasm_vga_ray_y() : 0;
+        payload.vga = vga;
     }
     
     postMessage(payload, transferables);
@@ -330,19 +340,29 @@ function simLoop() {
     lastSimLoopTime = now;
 
     let didWork = false;
-
     while (iterCount > 0 && performance.now() < timeLimit) {
         let isSettled = instance.exports.wasm_circuit_is_settled();
         
         if (!isSettled) {
             instance.exports.wasm_circuit_run_wave();
-            checkClockEdge();
+            if (instance.exports.wasm_circuit_is_settled()) {
+                if (pendingVgaTick) {
+                    if (instance.exports.wasm_vga_tick) instance.exports.wasm_vga_tick(1);
+                    pendingVgaTick = false;
+                }
+            }
             didWork = true;
             iterCount--;
         } else if (autoClock && clkNetId !== -1) {
             const val = getNetValue(clkNetId);
             instance.exports.wasm_circuit_set_input(clkNetId, val ? 0 : 1);
-            checkClockEdge();
+            if (checkClockEdge()) pendingVgaTick = true;
+            
+            // If it settled instantly (no logic depth or no feedback)
+            if (instance.exports.wasm_circuit_is_settled() && pendingVgaTick) {
+                if (instance.exports.wasm_vga_tick) instance.exports.wasm_vga_tick(1);
+                pendingVgaTick = false;
+            }
             didWork = true;
             iterCount--;
         } else {
