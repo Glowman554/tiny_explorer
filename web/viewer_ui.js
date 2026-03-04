@@ -42,6 +42,7 @@ export function initViewerUI(viewer) {
     togglePanel('toggleMonitorBtn', 'circuitMonitor', true);
     togglePanel('toggleVgaBtn', 'vgaMonitor', false); // Hide VGA by default
     togglePanel('toggleLogBtn', 'logPanel', true);
+    togglePanel('toggleHelpBtn', 'helpPanel', false); // Help disabled by default
 
     const forceShowPanel = (btnId, panelId) => updatePanel(btnId, panelId, true);
     const forceHidePanel = (btnId, panelId) => updatePanel(btnId, panelId, false);
@@ -51,6 +52,7 @@ export function initViewerUI(viewer) {
     on('close-circuitMonitor', 'onclick', () => forceHidePanel('toggleMonitorBtn', 'circuitMonitor'));
     on('close-vgaMonitor', 'onclick', () => forceHidePanel('toggleVgaBtn', 'vgaMonitor'));
     on('close-logPanel', 'onclick', () => forceHidePanel('toggleLogBtn', 'logPanel'));
+    on('close-helpPanel', 'onclick', () => forceHidePanel('toggleHelpBtn', 'helpPanel'));
     
     // Scale buttons
     const vgaCanvas = $('vgaCanvas');
@@ -91,6 +93,7 @@ export function initViewerUI(viewer) {
     makeDraggable('circuitMonitor');
     makeDraggable('vgaMonitor');
     makeDraggable('logPanel');
+    makeDraggable('helpPanel');
 
     // MARK: Engine Callbacks
     viewer.onLog = (msg) => {
@@ -187,12 +190,13 @@ export function bindViewControls(viewer) {
     const update = () => viewer.requestFrame();
 
     on('alphaSlider', 'oninput', (e) => { v.globalAlpha = parseFloat(e.target.value); update(); });
-    on('boundaryToggle', 'onchange', (e) => { v.showBoundaries = e.target.checked; update(); });
     on('perspSlider', 'oninput', (e) => { v.perspective = parseFloat(e.target.value); update(); });
     on('explodeSlider', 'oninput', (e) => { v.explode = parseFloat(e.target.value); update(); });
-    on('powerNetToggle', 'onchange', (e) => { v.showPowerNets = e.target.checked; update(); });
     on('stateMixSlider', 'oninput', (e) => { v.stateMix = parseFloat(e.target.value); update(); });
-    on('renderModeSelect', 'onchange', (e) => viewer.setRenderMode(e.target.value));
+
+    on('boundaryToggle', 'onchange', (e) => { v.showBoundaries = e.target.checked; update(); });
+    on('powerNetToggle', 'onchange', (e) => { v.showPowerNets = e.target.checked; update(); });
+    on('renderModeToggle', 'onchange', (e) => { viewer.setRenderMode(e.target.checked ? 'quad' : 'cube'); });
 }
 
 export function bindAnimationControls(viewer) {

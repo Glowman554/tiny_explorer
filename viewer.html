@@ -134,6 +134,7 @@
             justify-content: center;
             gap: 6px;
             user-select: none;
+            box-sizing: border-box;
         }
         button:hover { background: var(--btn-hover); border-color: #555; }
         button:active { transform: translateY(1px); }
@@ -146,6 +147,9 @@
         .btn-active { color: var(--accent-green) !important; border-color: var(--accent-green) !important; background: rgba(0, 255, 0, 0.05) !important; }
         .btn-inactive { color: var(--text-dim) !important; border-color: var(--panel-border) !important; }
         
+        .toggle-checkbox { display: none; }
+        .toggle-checkbox:checked + .btn { color: var(--accent-green) !important; border-color: var(--accent-green) !important; background: rgba(0, 255, 0, 0.05) !important; }
+
         .btn-success { background: rgba(0, 255, 0, 0.2) !important; border-color: #080 !important; color: #fff !important; font-weight: 700; box-shadow: 0 0 10px rgba(0, 255, 0, 0.2); }
         .btn-success:hover { background: rgba(0, 255, 0, 0.3) !important; }
         
@@ -211,6 +215,7 @@
         #circuitMonitor { top: 10px; right: 10px; width: 300px; max-height: 45vh; }
         #vgaMonitor { top: 48vh; right: 10px; }
         #logPanel { bottom: 10px; right: 10px; width: 600px; max-height: 300px; }
+        #helpPanel { top: 50px; left: 240px; width: 300px; max-height: 80vh; }
         
         #topMenu { position: absolute; top: 10px; left: 10px; z-index: 1000; display: flex; gap: 6px; }
 
@@ -362,6 +367,7 @@
         <button id="toggleMonitorBtn" class="btn-sm btn-inactive">Monitor</button>
         <button id="toggleVgaBtn" class="btn-sm btn-inactive">VGA</button>
         <button id="toggleLogBtn" class="btn-sm btn-inactive">Log</button>
+        <button id="toggleHelpBtn" class="btn-sm btn-inactive">Help</button>
     </div>
 
     <div id="ui" class="panel">
@@ -403,19 +409,15 @@
                 <input type="range" id="explodeSlider" min="1.0" max="20.0" step="0.1" value="1.0">
             </div>
             <div class="control-group">
-                <label>Rendering Mode</label>
-                <select id="renderModeSelect">
-                    <option value="cube" selected>Cube (3D)</option>
-                    <option value="quad">Quad (2D Opt)</option>
-                </select>
-            </div>
-            <div class="control-group">
-                <div class="flex flex-center flex-gap-med mb-2">
-                    <input type="checkbox" id="boundaryToggle"> <label class="m-0">Boundaries</label>
+                <div class="flex flex-gap-small mb-2">
+                    <input type="checkbox" id="boundaryToggle" class="toggle-checkbox">
+                    <label for="boundaryToggle" class="btn flex-1" style="padding: 6px 2px; font-size: 10px; min-width: 0;">BOUNDARIES</label>
+                    
+                    <input type="checkbox" id="renderModeToggle" class="toggle-checkbox">
+                    <label for="renderModeToggle" class="btn flex-1" style="padding: 6px 2px; font-size: 10px; min-width: 0;">RECTS/QUADS</label>
                 </div>
-                <div class="flex flex-center flex-gap-med">
-                    <input type="checkbox" id="powerNetToggle" checked> <label class="m-0">Power Nets</label>
-                </div>
+                <input type="checkbox" id="powerNetToggle" class="toggle-checkbox" checked>
+                <label for="powerNetToggle" class="btn btn-full" style="padding: 8px; font-size: 11px;">POWER NETS</label>
             </div>
             <div class="control-group">
                 <label>Animation</label>
@@ -512,6 +514,28 @@
         </div>
         <div class="panel-content">
             <pre id="logContainer"></pre>
+        </div>
+    </div>
+
+    <div id="helpPanel" class="panel hidden">
+        <div class="panel-header">
+            <span>Help & Navigation</span>
+            <button id="close-helpPanel" class="btn-close">×</button>
+        </div>
+        <div class="panel-content" style="font-size: 16px; line-height: 1.5; color: var(--text-main);">
+            <div style="margin-bottom: 8px;"><strong style="color: var(--accent-green);">Camera Navigation:</strong></div>
+            <ul style="margin-top: 0; padding-left: 20px; color: var(--text-muted); margin-bottom: 12px;">
+                <li><strong>Left Click + Drag:</strong> Pan camera</li>
+                <li><strong>Shift + Drag:</strong> Rotate camera</li>
+                <li><strong>Scroll Wheel:</strong> Zoom in and out</li>
+            </ul>
+            <div style="margin-bottom: 8px;"><strong style="color: var(--accent-green);">Keyboard Shortcuts:</strong></div>
+            <ul style="margin-top: 0; padding-left: 20px; color: var(--text-muted);">
+                <li><kbd style="color: var(--accent-orange);">Space</kbd>: Step simulation forward</li>
+                <li><kbd style="color: var(--accent-orange);">C</kbd>: Toggle clock signal ('clk')</li>
+                <li><kbd style="color: var(--accent-orange);">P</kbd>: Play / Pause animation sequence</li>
+                <li><kbd style="color: var(--accent-orange);">↑ / ↓</kbd>: Navigate selected tree list</li>
+            </ul>
         </div>
     </div>
 
