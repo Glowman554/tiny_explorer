@@ -139,15 +139,15 @@
         button:active { transform: translateY(1px); }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        .btn-sm { padding: 4px 8px; font-size: 11px; }
-        .btn-xs { padding: 2px 6px; font-size: 10px; }
+        .btn-sm { padding: 5px 10px; font-size: 11px; font-weight: 600; }
+        .btn-xs { padding: 4px 8px; font-size: 10px; font-weight: 600; }
         .btn-full { width: 100% !important; }
         
-        .btn-active { color: var(--accent-green) !important; border-color: var(--accent-green) !important; background: rgba(0, 255, 0, 0.02) !important; }
+        .btn-active { color: var(--accent-green) !important; border-color: var(--accent-green) !important; background: rgba(0, 255, 0, 0.05) !important; }
         .btn-inactive { color: var(--text-dim) !important; border-color: var(--panel-border) !important; }
         
-        .btn-success { background: rgba(0, 200, 0, 0.1); border-color: #080; color: #0c0; }
-        .btn-success:hover { background: rgba(0, 200, 0, 0.2); }
+        .btn-success { background: rgba(0, 255, 0, 0.2) !important; border-color: #080 !important; color: #fff !important; font-weight: 700; box-shadow: 0 0 10px rgba(0, 255, 0, 0.2); }
+        .btn-success:hover { background: rgba(0, 255, 0, 0.3) !important; }
         
         .btn-danger { background: rgba(200, 0, 0, 0.1); border-color: #800; color: #f66; }
         .btn-danger:hover { background: rgba(200, 0, 0, 0.2); }
@@ -226,18 +226,23 @@
         .monitor-btn.state-high { background: #1a1208; color: var(--accent-orange); border-color: #442a1a; }
         .state-flipped { color: var(--accent-yellow); }
         .monitor-btn.empty { opacity: 0.15; cursor: default; color: var(--text-dim); }
+        .monitor-special-row { 
+            gap: 4px; align-items: flex-start; margin-bottom: 2px;
+        }
 
         .monitor-special-btn { 
-            padding: 6px 8px; font-size: 10px; border-radius: 4px; 
+            height: 31px; padding: 0 8px; font-size: 10px; font-weight: 600; border-radius: 4px; 
+            display: flex; align-items: center; justify-content: center;
             background: #111; border: 1px solid var(--panel-border); color: var(--text-dim); cursor: pointer; 
-            font-family: var(--font-mono); transition: all 0.1s;
+            font-family: var(--font-mono); transition: all 0.1s; box-sizing: border-box;
         }
         .monitor-special-btn.state-low { background: #080c14; color: var(--accent-blue); border-color: #1a2a44; }
-        .monitor-special-btn.state-high { background: #1a1208; color: var(--accent-orange); border-color: #442a1a; }
+        .monitor-special-btn.state-high { background: #08140c; color: var(--accent-green); border-color: #1a442a; }
+        .monitor-special-btn.state-off-red { background: #140808; color: #ff4444; border-color: #441a1a; }
         .monitor-special-btn.state-flipped { color: var(--accent-yellow); }
 
         .monitor-group-label { 
-            font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin: 12px 0 4px 0; 
+            font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin: 6px 0 3px 0; 
             display: flex; justify-content: space-between; align-items: baseline;
         }
         .monitor-hex-val { font-family: var(--font-mono); color: var(--text-muted); font-size: 12px; text-transform: none; }
@@ -283,9 +288,17 @@
 
         /* Circuit Controls Extra Styling */
         .circuit-controls-active {
-            padding-bottom: 0; flex-grow: 0; 
+            padding: 10px 12px 0 12px; flex-grow: 0; 
             border-bottom: 1px solid var(--panel-border);
         }
+        .monitor-controls-group {
+            background: #111;
+            border: 1px solid var(--panel-border);
+            border-radius: 4px;
+            padding: 8px;
+            margin-bottom: 4px;
+        }
+        .sim-speed-val { color: var(--accent-orange); font-family: var(--font-mono); font-size: 11px; }
 
         .waiting-text { padding: 12px; color: var(--text-dim); font-size: 12px; text-align: center; }
 
@@ -312,6 +325,30 @@
             white-space: pre-wrap;
             max-width: 200px;
             line-height: 1.4;
+        }
+        /* Seven Segment Display */
+        .seven-seg-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid var(--panel-border);
+            border-radius: 4px;
+            padding: 6px 8px;
+            min-width: 40px;
+        }
+        .seven-seg-display {
+            width: 30px;
+            height: 44px;
+            transform: skewX(-8deg);
+        }
+        .segment {
+            fill: #222;
+            transition: fill 0.1s, filter 0.1s;
+        }
+        .segment.on {
+            fill: var(--accent-red);
+            filter: drop-shadow(0 0 4px var(--accent-red));
         }
     </style>
 </head>
@@ -414,18 +451,40 @@
             <button id="close-circuitMonitor" class="btn-close">×</button>
         </div>
         <div id="circuitControls" class="panel-content circuit-controls-active hidden">
-            <div class="flex flex-center flex-gap-med mb-4">
-                <button id="btnPlayPause" class="btn-xs" style="width: 24px;">▶</button>
-                <label class="m-0">Speed</label>
-                <input type="range" id="simSpeed" min="1" max="100" value="50" class="flex-1 m-0">
-                <span id="simSpeedLabel" class="font-mono text-xs" style="width: 40px; text-align: right; color: var(--accent-orange);">PAUSED</span>
+            <div class="monitor-controls-group">
+                <div class="flex flex-between flex-center mb-1">
+                    <label class="m-0">Speed</label>
+                    <span id="simSpeedLabel" class="sim-speed-val">READY</span>
+                </div>
+                <div class="flex flex-center flex-gap-med">
+                    <button id="btnPlayPause" class="btn-sm" style="width: 32px; height: 24px;">▶</button>
+                    <input type="range" id="simSpeed" min="1" max="100" value="50" class="flex-1 m-0">
+                </div>
             </div>
-            <div class="flex flex-center flex-gap-med mb-4">
-                <input type="checkbox" id="autoClockToggle" checked>
-                <label class="m-0">Auto Clock</label>
+            <div class="monitor-controls-group mb-0">
+                <div class="flex flex-gap-med">
+                    <div class="flex-1">
+                        <div class="flex mb-2">
+                            <button id="autoClockToggle" class="monitor-special-btn state-high" style="flex: 1;">Auto Clock</button>
+                        </div>
+                        <div id="monitorSpecialSignals"></div>
+                    </div>
+                    <div id="sevenSegDisplay" class="seven-seg-container hidden" style="align-self: stretch; padding: 4px 6px; background: #000; border: 1px solid var(--panel-border);">
+                        <svg viewBox="0 0 40 60" class="seven-seg-display" style="height: 100%; width: 40px; min-height: 52px;">
+                            <path id="7seg-0" d="M 10 5 L 30 5 L 34 9 L 6 9 Z" class="segment" />
+                            <path id="7seg-1" d="M 35 10 L 35 28 L 31 24 L 31 14 Z" class="segment" />
+                            <path id="7seg-2" d="M 35 32 L 35 50 L 31 46 L 31 36 Z" class="segment" />
+                            <path id="7seg-3" d="M 10 55 L 30 55 L 34 51 L 6 51 Z" class="segment" />
+                            <path id="7seg-4" d="M 5 32 L 5 50 L 9 46 L 9 36 Z" class="segment" />
+                            <path id="7seg-5" d="M 5 10 L 5 28 L 9 24 L 9 14 Z" class="segment" />
+                            <path id="7seg-6" d="M 10 30 L 13 27 L 27 27 L 30 30 L 27 33 L 13 33 Z" class="segment" />
+                            <circle id="7seg-7" cx="35" cy="55" r="3" class="segment" />
+                        </svg>
+                    </div>
+                </div>
             </div>
         </div>
-        <div id="circuitMonitorContent" class="panel-content">
+        <div id="circuitMonitorContent" class="panel-content" style="padding: 4px 12px 10px 12px;">
             <div class="waiting-text">Waiting for netlist...</div>
         </div>
     </div>

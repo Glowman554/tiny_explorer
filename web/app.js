@@ -220,12 +220,15 @@ function closeModal() {
 async function openGdsViewer(macro) {
     if (!selectedShuttle) return;
     
+    const project = currentProjects.find(p => p.macro === macro);
+    const effectiveMacro = (project && project.subtile_group) ? project.subtile_group : macro;
+    
     let baseUrl = "";
     if (selectedShuttle.project_gds_url_template) {
-        baseUrl = selectedShuttle.project_gds_url_template.replace(/{macro}/g, macro);
+        baseUrl = selectedShuttle.project_gds_url_template.replace(/{macro}/g, effectiveMacro);
     } else {
         // Fallback for older data
-        baseUrl = `https://raw.githubusercontent.com/TinyTapeout/tinytapeout-${selectedShuttle.id}/main/projects/${macro}/${macro}.gds`;
+        baseUrl = `https://raw.githubusercontent.com/TinyTapeout/tinytapeout-${selectedShuttle.id}/main/projects/${effectiveMacro}/${effectiveMacro}.gds`;
     }
 
     const brUrl = baseUrl + '.br';

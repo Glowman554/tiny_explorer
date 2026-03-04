@@ -240,21 +240,25 @@ export function bindSimulationControls(viewer) {
     const Store = createStore({
         isPaused: true,
         simSpeed: simSpeed ? parseInt(simSpeed.value, 10) : 50,
-        autoClock: autoClockToggle ? autoClockToggle.checked : false
+        autoClock: autoClockToggle ? (autoClockToggle.classList.contains('state-high')) : true
     });
+    
+    if (viewer.isLoaded) {
+        viewer.setSimConfig(0, Store.get().autoClock);
+    }
 
     // 2. Declarative DOM Bindings
     Store.bind('isPaused', (paused) => {
         const btn = $('btnPlayPause');
         if (btn) {
             btn.innerText = paused ? '▶' : '⏸';
-            btn.className = `action-btn ${paused ? 'btn-inactive' : 'btn-active'}`;
+            btn.className = `btn-sm ${paused ? 'btn-success' : 'btn-active'}`;
         }
         const label = $('simSpeedLabel');
         if (label) {
             const speed = Store.get().simSpeed;
-            label.innerText = paused ? 'PAUSED' : (speed === 100 ? 'MAX' : `${speed}%`);
-            label.className = `badge ${paused ? 'btn-inactive' : 'btn-active'}`;
+            label.innerText = paused ? 'READY' : (speed === 100 ? 'MAX' : `${speed}%`);
+            label.className = `sim-speed-val ${paused ? 'btn-inactive' : 'btn-active'}`;
         }
     });
 
@@ -262,6 +266,14 @@ export function bindSimulationControls(viewer) {
         const label = $('simSpeedLabel');
         if (label && !Store.get().isPaused) {
             label.innerText = speed === 100 ? 'MAX' : `${speed}%`;
+        }
+    });
+
+    Store.bind('autoClock', (auto) => {
+        const btn = $('autoClockToggle');
+        if (btn) {
+            btn.className = `monitor-special-btn ${auto ? 'state-high' : 'state-off-red'}`;
+            btn.style.flex = '0 0 auto';
         }
     });
 
@@ -293,7 +305,7 @@ export function bindSimulationControls(viewer) {
         }
     });
     
-    on('autoClockToggle', 'onchange', (e) => Store.set({ autoClock: e.target.checked }));
+    on('autoClockToggle', 'onclick', () => Store.set({ autoClock: !Store.get().autoClock }));
 }
 
 export function bindTreeInspectorUI(viewer) {
@@ -568,7 +580,7 @@ function buildCircuitMonitorUI(viewer) {
     const renderSingleBitsHTML = (wires, filterFunc) => {
         const filtered = wires.filter(w => filterFunc(w.name));
         if (!filtered.length) return '';
-        return `<div class="monitor-special-row flex flex-wrap">
+        return `<div class="monitor-special-row flex flex-wrap" style="margin-bottom: 4px; gap: 4px;">
             ${filtered.map(w => {
                 const desc = getPinDesc(w.name);
                 const tooltipAttr = desc ? ` data-tooltip="${desc}"` : '';
@@ -577,9 +589,31 @@ function buildCircuitMonitorUI(viewer) {
         </div>`;
     };
 
-    let importantHtml = renderSingleBitsHTML(singleBits, isImportant);
+    const specialMonitor = document.getElementById('monitorSpecialSignals');
+    if (specialMonitor) specialMonitor.innerHTML = renderSingleBitsHTML(singleBits, isImportant);
+    
+    let importantHtml = '';
     let detailsHtml = renderSingleBitsHTML(singleBits, n => !isImportant(n));
     let hiddenCount = singleBits.filter(w => !isImportant(w.name)).length;
+
+    // Show/Hide Seven Segment Display based on uo_out group presence
+    const hasUoOut = Array.from(groupsMap.keys()).some(n => n.toLowerCase() === 'uo_out' || n.toLowerCase() === 'uo');
+    const segContainer = document.getElementById('sevenSegDisplay');
+    if (segContainer) segContainer.classList.toggle('hidden', !hasUoOut);
+
+    // Show/Hide Auto Clock based on clk presence
+    const hasClock = singleBits.some(w => w.name.toLowerCase() === 'clk');
+    const autoClockBtn = document.getElementById('autoClockToggle');
+    if (autoClockBtn) {
+        const btnContainer = autoClockBtn.parentElement;
+        if (btnContainer) btnContainer.classList.toggle('hidden', !hasClock);
+    }
+    
+    // Hide the whole footer controls group if nothing is visible inside
+    const controlsFooter = document.querySelector('.monitor-controls-group:last-child');
+    if (controlsFooter) {
+        controlsFooter.classList.toggle('hidden', !hasClock && !hasUoOut);
+    }
 
     Array.from(groupsMap.keys()).sort().forEach(groupName => {
         const groupWires = groupsMap.get(groupName);
@@ -613,42 +647,47 @@ function buildCircuitMonitorUI(viewer) {
     });
 
     monitor.innerHTML = importantHtml + (hiddenCount > 0 ? `<details><summary>${hiddenCount} hidden signals...</summary>${detailsHtml}</details>` : '');
-    
+
     // Event Delegation instead of 50 bound handlers
-    monitor.onclick = (e) => {
-        const wireId = e.target.getAttribute('data-wire-id');
-        if (wireId) viewer.toggleWire(parseInt(wireId));
+    const setupHandlers = (container) => {
+        container.onclick = (e) => {
+            const wireId = e.target.getAttribute('data-wire-id');
+            if (wireId) viewer.toggleWire(parseInt(wireId));
+        };
+
+        container.onmouseover = (e) => {
+            const text = e.target.getAttribute('data-tooltip');
+            const tt = $('tooltip');
+            if (text && tt) {
+                tt.innerText = text;
+                tt.style.display = 'block';
+                const rect = e.target.getBoundingClientRect();
+                tt.style.left = (rect.left + rect.width/2 - tt.offsetWidth/2) + 'px';
+                tt.style.top = (rect.top - tt.offsetHeight - 8) + 'px';
+                const ttRect = tt.getBoundingClientRect();
+                if (ttRect.left < 5) tt.style.left = '5px';
+                if (ttRect.right > window.innerWidth - 5) tt.style.left = (window.innerWidth - ttRect.width - 5) + 'px';
+            }
+        };
+
+        container.onmouseout = () => {
+            const tt = $('tooltip');
+            if (tt) tt.style.display = 'none';
+        };
     };
 
-    monitor.onmouseover = (e) => {
-        const text = e.target.getAttribute('data-tooltip');
-        const tt = $('tooltip');
-        if (text && tt) {
-            tt.innerText = text;
-            tt.style.display = 'block';
-            const rect = e.target.getBoundingClientRect();
-            // Position above the element, centered horizontally
-            tt.style.left = (rect.left + rect.width/2 - tt.offsetWidth/2) + 'px';
-            tt.style.top = (rect.top - tt.offsetHeight - 8) + 'px';
-            
-            // Boundary checks (right/left)
-            const ttRect = tt.getBoundingClientRect();
-            if (ttRect.left < 5) tt.style.left = '5px';
-            if (ttRect.right > window.innerWidth - 5) tt.style.left = (window.innerWidth - ttRect.width - 5) + 'px';
-        }
-    };
-
-    monitor.onmouseout = () => {
-        const tt = $('tooltip');
-        if (tt) tt.style.display = 'none';
-    };
+    setupHandlers(monitor);
+    if (specialMonitor) setupHandlers(specialMonitor);
 
     on('circuitControls', 'classList', { remove: 'hidden' }); // Minimal sync
     const controlsUI = $('circuitControls');
     if (controlsUI) controlsUI.style.display = 'block';
 
     // Build the high-speed Cache Maps
-    viewer._uiButtonNodes = Array.from(monitor.querySelectorAll('[data-wire-id]')).map(el => ({
+    const allButtons = Array.from(monitor.querySelectorAll('[data-wire-id]'));
+    if (specialMonitor) allButtons.push(...Array.from(specialMonitor.querySelectorAll('[data-wire-id]')));
+
+    viewer._uiButtonNodes = allButtons.map(el => ({
         wireId: parseInt(el.getAttribute('data-wire-id')),
         el: el,
         isGroup: el.classList.contains('monitor-btn'),
@@ -711,6 +750,20 @@ function updateCircuitMonitorState(viewer, wireData) {
         const hex = val.toString(16).toUpperCase().padStart(2, "0");
         const dec = val.toString().padStart(3, " ");
         group.valEl.textContent = `0x${hex} (${dec})`;
+
+        // Update Seven Segment Display
+        if (group.name.toLowerCase() === 'uo_out' || group.name.toLowerCase() === 'uo') {
+            const segContainer = document.getElementById('sevenSegDisplay');
+            if (segContainer) {
+                for (let i = 0; i < 8; i++) {
+                    const seg = document.getElementById(`7seg-${i}`);
+                    if (seg) {
+                        const on = (val >> BigInt(i)) & 1n;
+                        seg.classList.toggle('on', on === 1n);
+                    }
+                }
+            }
+        }
     }
 }
 

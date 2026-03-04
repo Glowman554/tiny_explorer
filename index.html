@@ -65,19 +65,36 @@
         <section class="about-section">
             <h2 class="section-title">About the Project</h2>
             <div class="about-content">
-                <p><strong>Tiny Tapeout Explorer</strong> is an interactive web-based visualization tool for exploring integrated circuit designs from the Tiny Tapeout community. Our features and motivation include:</p>
+                <p><strong>Tiny Tapeout Explorer</strong> is an interactive web-based visualization tool for exploring integrated circuit designs from the Tiny Tapeout community. It features:</p>
                 <ul>
-                    <li><strong>Features:</strong> Lightning-fast Manhattan-optimized layout parsing, hierarchical structural mapping, 3D and 2D viewing, switch-level simulation, and a modular architecture.</li>
-                    <li><strong>Motivation:</strong> To provide a seamless, high-performance, browser-based environment for examining and sharing silicon designs without complex local tools.</li>
+                    <li><strong>WASM-Powered Engine:</strong> C++ Manhattan-optimized layout parser and circuit extractor running natively in the browser.</li>
+                    <li><strong>Advanced Visualization:</strong> Rich 3D GDSII/OASIS exploration using WebGL 2.0 with wire-level highlights.</li>
+                    <li><strong>Switch-Level Simulation:</strong> Interactive logic simulation with native VGA output and real-time signal monitoring.</li>
                 </ul>
-                <p>This project serves as a major upgrade to my previous simulator, the <a href="https://znah.net/tt09/" target="_blank">original TT09 WebGL GDS Viewer</a>. It builds upon its foundation with faster multi-threaded extraction, deeper interactive capabilities, and native VGA simulation.</p>
-                <p><strong>Author:</strong> Alexander Mordvintsev (znah, moralex)</p>
+                <p>This project serves as a major upgrade to my previous simulator, the <a href="https://znah.net/tt09/" target="_blank">original TT09 WebGL GDS Viewer</a>.</p>
+                <p><strong>Author:</strong> <a href="https://znah.net/">Alexander Mordvintsev</a> (moralex@google.com)</p>
             </div>
         </section>
 
         <section class="featured-section">
             <h2 class="section-title">Featured Designs</h2>
             <div class="featured-grid">
+                <div class="featured-card">
+                    <a href="viewer.html?file=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-ihp-25a%2Fmain%2Fprojects%2Ftt_um_a1k0n_nyancat%2Ftt_um_a1k0n_nyancat.gds&pdk=ihp-sg13g2&metadata=https%3A%2F%2Findex.tinytapeout.com%2Fttihp25a%2Ftt_um_a1k0n_nyancat.json" class="featured-link" target="_blank">
+                        <h3>IHP Nyan Cat (SG13G2)</h3>
+                        <p class="featured-slug">tt_um_a1k0n_nyancat</p>
+                        <p class="featured-desc">The iconic Nyan Cat rendered via VGA, fabricated on the high-performance IHP SG13G2 130nm BiCMOS PDK.</p>
+                    </a>
+                    <div class="card-actions">
+                        <a href="viewer.html?file=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-ihp-25a%2Fmain%2Fprojects%2Ftt_um_a1k0n_nyancat%2Ftt_um_a1k0n_nyancat.gds&pdk=ihp-sg13g2&metadata=https%3A%2F%2Findex.tinytapeout.com%2Fttihp25a%2Ftt_um_a1k0n_nyancat.json" class="action-link gds-btn" target="_blank">
+                             <svg width="14" height="14"><use href="#icon-gds"></use></svg>
+                             View
+                        </a>
+                        <a href="https://tinytapeout.com/runs/ttihp25a/tt_um_a1k0n_nyancat/" class="social-link" title="Tiny Tapeout Project Page" target="_blank">
+                            <svg width="16" height="16"><use href="#icon-external"></use></svg>
+                        </a>
+                    </div>
+                </div>
                 <div class="featured-card">
                     <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_znah_vga_ca%2Ftt_um_znah_vga_ca.gds&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_znah_vga_ca.json" class="featured-link" target="_blank">
                         <h3>VGA Cellular Automata</h3>
@@ -132,6 +149,22 @@
                         </a>
                         <a href="https://x.com/zzznah/status/2027435436709126401" class="social-link" title="Twitter Update" target="_blank">
                             <svg><use href="#icon-x"></use></svg>
+                        </a>
+                    </div>
+                </div>
+                <div class="featured-card">
+                    <a href="viewer.html?file=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-sky-25b%2Fmain%2Fprojects%2Ftt_um_counter_isaharp%2Ftt_um_counter_isaharp.oas&pdk=sky130A&metadata=https%3A%2F%2Findex.tinytapeout.com%2Fttsky25b%2Ftt_um_counter_isaharp.json" class="featured-link" target="_blank">
+                        <h3>SkyWater Counter (SKY130)</h3>
+                        <p class="featured-slug">tt_um_counter_isaharp</p>
+                        <p class="featured-desc">Simple counter design demonstrating the use of 7-segment display.</p>
+                    </a>
+                    <div class="card-actions">
+                        <a href="viewer.html?file=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-sky-25b%2Fmain%2Fprojects%2Ftt_um_counter_isaharp%2Ftt_um_counter_isaharp.oas&pdk=sky130A&metadata=https%3A%2F%2Findex.tinytapeout.com%2Fttsky25b%2Ftt_um_counter_isaharp.json" class="action-link gds-btn" target="_blank">
+                             <svg width="14" height="14"><use href="#icon-gds"></use></svg>
+                             View
+                        </a>
+                        <a href="https://tinytapeout.com/runs/ttsky25b/tt_um_counter_isaharp/" class="social-link" title="Tiny Tapeout Project Page" target="_blank">
+                            <svg width="16" height="16"><use href="#icon-external"></use></svg>
                         </a>
                     </div>
                 </div>
