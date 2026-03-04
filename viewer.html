@@ -295,9 +295,28 @@
         .tree-list-wrapper { width: 100%; overflow-x: auto; scrollbar-width: thin; }
         #treeSelect { width: auto; min-width: 100%; }
         #treeSelect option { white-space: nowrap; padding-right: 20px; }
+
+        /* Instant Tooltips */
+        .instant-tooltip {
+            position: fixed;
+            background: #222;
+            color: #eee;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            pointer-events: none;
+            z-index: 2000;
+            border: 1px solid #444;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            display: none;
+            white-space: pre-wrap;
+            max-width: 200px;
+            line-height: 1.4;
+        }
     </style>
 </head>
 <body>
+    <div id="tooltip" class="instant-tooltip"></div>
     <div id="loading">Loading...</div>
     <canvas id="glcanvas"></canvas>
 

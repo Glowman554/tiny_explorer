@@ -18,6 +18,9 @@ window.addEventListener('DOMContentLoaded', () => {
         fetch(metadataUrl)
             .then(res => res.json())
             .then(data => {
+                viewer.metadata = data; // Store for UI to use (tooltips, etc)
+                viewer.onMetadata?.(data);
+
                 const allStrings = [];
                 const searchStrings = (obj) => {
                     if (!obj) return;

@@ -182,13 +182,13 @@ function renderProjects(projects, query = '') {
             <td>
                 <div class="actions">
                     <a href="https://tinytapeout.com/runs/${selectedShuttle.id}/${project.macro}/" target="_blank" onclick="event.stopPropagation()" class="action-link icon-only" title="Tiny Tapeout Project Page">
-                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                        <svg width="16" height="16"><use href="#icon-external"></use></svg>
                     </a>
-                    <button class="action-link meta-btn icon-only" onclick='event.stopPropagation(); showProjectMetadata(${JSON.stringify(project).replace(/'/g, "&apos;")})' title="JSON Metadata">
-                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                    <button class="action-link meta-btn icon-only" onclick="event.stopPropagation(); showProjectMetadata('${project.macro}')" title="JSON Metadata">
+                        <svg width="16" height="16"><use href="#icon-meta"></use></svg>
                     </button>
                     <button class="action-link gds-btn" onclick="event.stopPropagation(); openGdsViewer('${project.macro}')" title="View GDS">
-                        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                        <svg width="14" height="14"><use href="#icon-gds"></use></svg>
                         View
                     </button>
                 </div>
@@ -200,7 +200,9 @@ function renderProjects(projects, query = '') {
 
 
 // Show Modal
-function showProjectMetadata(project) {
+function showProjectMetadata(macro) {
+    const project = currentProjects.find(p => p.macro === macro);
+    if (!project) return;
     jsonMetadata.textContent = JSON.stringify(project, null, 4);
     modalOverlay.classList.remove('hidden');
     document.body.style.overflow = 'hidden'; // Prevent scrolling

@@ -206,6 +206,7 @@ export class CircuitViewer {
         this.onLoaded = null;
         this.onUpdateCircuit = null;
         this.onVgaFrame = null;
+        this.onMetadata = null;
 
         this.simSpeed = 0;
         this.autoClock = false;
@@ -563,14 +564,14 @@ export class CircuitViewer {
             } else if (data.type === "callResult") {
                 if (data.wireData) {
                     this.updateNetStatesFromWireData(data.wireData);
-                    this.onUpdateCircuit?.();
+                    this.onUpdateCircuit?.(data.wireData);
                 }
             } else if (data.type === 'simUpdate') {
                 if (this.simInputPauseActive) return; // Drop stale incoming frames while freezing for input manipulation
                 
                 if (data.wireData) {
                     this.updateNetStatesFromWireData(data.wireData);
-                    this.onUpdateCircuit?.();
+                    this.onUpdateCircuit?.(data.wireData);
                 }
                 if (data.vga) {
                     this.onVgaFrame?.(data.vga);
@@ -784,11 +785,16 @@ export class CircuitViewer {
             // Add a visual 'flipped' highlight bit (0x40)
             this.netStateData[id] |= 0x40;
             this.updateNetStateTexture();
-            this.onUpdateCircuit?.();
+            this.onUpdateCircuit?.(this.netStateData); // Pass what we have
         }
 
         this.pendingInputs.push({id, val: newVal});
         this.flushPendingInputs();
+    }
+
+    stepCircuit() {
+        if (!this.worker) return;
+        this.callWasm("wasm_circuit_run_wave", [], ["wireData"]);
     }
 
     async waitForWorkerAck() {

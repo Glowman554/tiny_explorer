@@ -11,6 +11,43 @@
     <link rel="stylesheet" href="web/style.css">
 </head>
 <body>
+    <!-- SVG Icon Library -->
+    <svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+        <symbol id="icon-gds" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </symbol>
+        <symbol id="icon-external" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <line x1="10" y1="14" x2="21" y2="3"></line>
+        </symbol>
+        <symbol id="icon-meta" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+        </symbol>
+        <symbol id="icon-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+        </symbol>
+        <symbol id="icon-youtube" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M23.5 6.2c-.3-1.1-1.1-1.9-2.2-2.2C19.3 3.5 12 3.5 12 3.5s-7.3 0-9.3.5c-1.1.3-1.9 1.1-2.2 2.2C0 8.2 0 12 0 12s0 3.8.5 5.8c.3 1.1 1.1 1.9 2.2 2.2 2 1 9.3 1 9.3 1s7.3 0 9.3-1c1.1-.3 1.9-1.1 2.2-2.2.5-2 .5-5.8.5-5.8s0-3.8-.5-5.8zM9.5 15.5V8.5l6.5 3.5-6.5 3.5z"/>
+        </symbol>
+        <symbol id="icon-x" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.045 4.126H5.078z"/>
+        </symbol>
+        <symbol id="icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </symbol>
+        <symbol id="icon-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+        </symbol>
+    </svg>
+
     <main class="container">
 
         <header class="hero">
@@ -20,7 +57,7 @@
             <h1 class="title">Tiny Tapeout <span class="highlight">Explorer</span></h1>
             <p class="subtitle">Discover the amazing silicon projects from the Tiny Tapeout community.</p>
             <button style="margin-top: 1.5rem; padding: 0.8rem 1.5rem; background: var(--accent-cyan); color: #050a15; border: none; border-radius: 8px; font-weight: 600; font-family: inherit; cursor: pointer; transition: transform 0.2s; box-shadow: 0 4px 12px rgba(0, 240, 255, 0.2);" onclick="window.open('viewer.html?local=1', '_blank')" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" style="vertical-align: middle; margin-right: 6px; margin-top: -2px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                <svg width="16" height="16" style="vertical-align: middle; margin-right: 6px; margin-top: -2px;"><use href="#icon-upload"></use></svg>
                 Load Local GDS/OAS
             </button>
         </header>
@@ -41,26 +78,76 @@
         <section class="featured-section">
             <h2 class="section-title">Featured Designs</h2>
             <div class="featured-grid">
-                <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_znah_vga_ca%2Ftt_um_znah_vga_ca.gds&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_znah_vga_ca.json" class="featured-card" target="_blank">
-                    <h3>VGA Cellular Automata</h3>
-                    <p class="featured-slug">tt_um_znah_vga_ca</p>
-                    <p class="featured-desc">A fascinating cellular automata design outputting directly via VGA.</p>
-                </a>
-                <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_rejunity_atari2600%2Ftt_um_rejunity_atari2600.gds.br&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_rejunity_atari2600.json" class="featured-card" target="_blank">
-                    <h3>Tiny Atari 2600</h3>
-                    <p class="featured-slug">tt_um_rejunity_atari2600</p>
-                    <p class="featured-desc">A tiny-atari-2600 silicon clone featuring a rich ROM subsystem.</p>
-                </a>
-                <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_oscillating_bones%2Ftt_um_oscillating_bones.gds&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_oscillating_bones.json" class="featured-card" target="_blank">
-                    <h3>Oscillating Bones</h3>
-                    <p class="featured-slug">tt_um_oscillating_bones</p>
-                    <p class="featured-desc">An experimental hardware design from tinytapeout-09 showcasing unique physics-based oscillations.</p>
-                </a>
-                <a href="viewer.html?gds=gallery%2Fmultiplier8.oas" class="featured-card" target="_blank">
-                    <h3>8-bit Multiplier</h3>
-                    <p class="featured-slug">gallery/multiplier8.oas</p>
-                    <p class="featured-desc">A standard library 8-bit multiplier demonstrating basic combinational logic.</p>
-                </a>
+                <div class="featured-card">
+                    <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_znah_vga_ca%2Ftt_um_znah_vga_ca.gds&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_znah_vga_ca.json" class="featured-link" target="_blank">
+                        <h3>VGA Cellular Automata</h3>
+                        <p class="featured-slug">tt_um_znah_vga_ca</p>
+                        <p class="featured-desc">A fascinating cellular automata design outputting directly via VGA.</p>
+                    </a>
+                    <div class="card-actions">
+                        <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_znah_vga_ca%2Ftt_um_znah_vga_ca.gds&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_znah_vga_ca.json" class="action-link gds-btn" target="_blank">
+                             <svg width="14" height="14"><use href="#icon-gds"></use></svg>
+                             View
+                        </a>
+                        <a href="https://tinytapeout.com/runs/tt09/tt_um_znah_vga_ca/" class="social-link" title="Tiny Tapeout Project Page" target="_blank">
+                            <svg width="16" height="16"><use href="#icon-external"></use></svg>
+                        </a>
+                        <a href="https://www.youtube.com/watch?v=J81WQrIBrpw" class="social-link" title="Watch Demo" target="_blank">
+                            <svg><use href="#icon-youtube"></use></svg>
+                        </a>
+                    </div>
+                </div>
+                <div class="featured-card">
+                    <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_rejunity_atari2600%2Ftt_um_rejunity_atari2600.gds.br&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_rejunity_atari2600.json" class="featured-link" target="_blank">
+                        <h3>Tiny Atari 2600</h3>
+                        <p class="featured-slug">tt_um_rejunity_atari2600</p>
+                        <p class="featured-desc">A tiny-atari-2600 silicon clone featuring a rich ROM subsystem.</p>
+                    </a>
+                    <div class="card-actions">
+                        <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_rejunity_atari2600%2Ftt_um_rejunity_atari2600.gds.br&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_rejunity_atari2600.json" class="action-link gds-btn" target="_blank">
+                             <svg width="14" height="14"><use href="#icon-gds"></use></svg>
+                             View
+                        </a>
+                        <a href="https://tinytapeout.com/runs/tt09/tt_um_rejunity_atari2600/" class="social-link" title="Tiny Tapeout Project Page" target="_blank">
+                            <svg width="16" height="16"><use href="#icon-external"></use></svg>
+                        </a>
+                        <a href="https://x.com/zzznah/status/2024626059149287483" class="social-link" title="Twitter Update" target="_blank">
+                            <svg><use href="#icon-x"></use></svg>
+                        </a>
+                    </div>
+                </div>
+                <div class="featured-card">
+                    <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_oscillating_bones%2Ftt_um_oscillating_bones.gds&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_oscillating_bones.json" class="featured-link" target="_blank">
+                        <h3>Oscillating Bones</h3>
+                        <p class="featured-slug">tt_um_oscillating_bones</p>
+                        <p class="featured-desc">An experimental hardware design from tinytapeout-09 showcasing unique physics-based oscillations.</p>
+                    </a>
+                    <div class="card-actions">
+                        <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_oscillating_bones%2Ftt_um_oscillating_bones.gds&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_oscillating_bones.json" class="action-link gds-btn" target="_blank">
+                             <svg width="14" height="14"><use href="#icon-gds"></use></svg>
+                             View
+                        </a>
+                        <a href="https://tinytapeout.com/runs/tt09/tt_um_oscillating_bones/" class="social-link" title="Tiny Tapeout Project Page" target="_blank">
+                            <svg width="16" height="16"><use href="#icon-external"></use></svg>
+                        </a>
+                        <a href="https://x.com/zzznah/status/2027435436709126401" class="social-link" title="Twitter Update" target="_blank">
+                            <svg><use href="#icon-x"></use></svg>
+                        </a>
+                    </div>
+                </div>
+                <div class="featured-card">
+                    <a href="viewer.html?gds=gallery%2Fmultiplier8.oas" class="featured-link" target="_blank">
+                        <h3>8-bit Multiplier</h3>
+                        <p class="featured-slug">gallery/multiplier8.oas</p>
+                        <p class="featured-desc">A standard library 8-bit multiplier demonstrating basic combinational logic.</p>
+                    </a>
+                    <div class="card-actions">
+                        <a href="viewer.html?gds=gallery%2Fmultiplier8.oas" class="action-link gds-btn" target="_blank">
+                             <svg width="14" height="14"><use href="#icon-gds"></use></svg>
+                             View
+                        </a>
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -95,11 +182,11 @@
             <div class="sticky-controls">
                 <div class="controls-wrapper">
                     <button id="back-button" class="back-btn">
-                        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                        <svg width="24" height="24"><use href="#icon-back"></use></svg>
                         Back
                     </button>
                     <div class="search-container">
-                        <svg class="search-icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <svg class="search-icon" width="20" height="20"><use href="#icon-search"></use></svg>
                         <input type="text" id="project-search" placeholder="Search by name, author, or description..." autocomplete="off">
                     </div>
                 </div>

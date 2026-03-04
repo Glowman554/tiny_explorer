@@ -237,7 +237,10 @@ onmessage = function(e) {
             waveAccumulator = 0;
             scheduleNext(simLoop);
         } else if (!shouldRun) {
-            simRunning = false;
+            if (simRunning) {
+                simRunning = false;
+                sendSimUpdate(true); // Final sync when stopping
+            }
         }
     } else if (e.data.type === 'ack_request') {
         postMessage({ type: 'ack_response' });
@@ -370,10 +373,13 @@ function simLoop() {
         }
     }
     
-    if (didWork || (now - lastSimUpdate) > 100) {
+    const forceResync = (now - lastSimUpdate) > 100;
+    if (didWork || forceResync) {
         // limit UI updates to ~60fps (16ms)
-        if ((now - lastSimUpdate) >= 16) {
-            sendSimUpdate(didWork);
+        // BUT: If the circuit is settled and we just did work, this is a 'final' state, send it immediately
+        const isSettled = instance.exports.wasm_circuit_is_settled();
+        if ((now - lastSimUpdate) >= 16 || (isSettled && didWork)) {
+            sendSimUpdate(didWork || forceResync);
         }
     }
     
