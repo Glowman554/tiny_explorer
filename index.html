@@ -25,6 +25,45 @@
             </button>
         </header>
 
+        <section class="about-section">
+            <h2 class="section-title">About the Project</h2>
+            <div class="about-content">
+                <p><strong>Tiny Tapeout Explorer</strong> is an interactive web-based visualization tool for exploring integrated circuit designs from the Tiny Tapeout community. Our features and motivation include:</p>
+                <ul>
+                    <li><strong>Features:</strong> Lightning-fast Manhattan-optimized layout parsing, hierarchical structural mapping, 3D and 2D viewing, switch-level simulation, and a modular architecture.</li>
+                    <li><strong>Motivation:</strong> To provide a seamless, high-performance, browser-based environment for examining and sharing silicon designs without complex local tools.</li>
+                </ul>
+                <p>This project serves as a major upgrade to my previous simulator, the <a href="https://znah.net/tt09/" target="_blank">original TT09 WebGL GDS Viewer</a>. It builds upon its foundation with faster multi-threaded extraction, deeper interactive capabilities, and native VGA simulation.</p>
+                <p><strong>Author:</strong> Alexander Mordvintsev (znah, moralex)</p>
+            </div>
+        </section>
+
+        <section class="featured-section">
+            <h2 class="section-title">Featured Designs</h2>
+            <div class="featured-grid">
+                <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_znah_vga_ca%2Ftt_um_znah_vga_ca.gds&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_znah_vga_ca.json" class="featured-card" target="_blank">
+                    <h3>VGA Cellular Automata</h3>
+                    <p class="featured-slug">tt_um_znah_vga_ca</p>
+                    <p class="featured-desc">A fascinating cellular automata design outputting directly via VGA.</p>
+                </a>
+                <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_rejunity_atari2600%2Ftt_um_rejunity_atari2600.gds.br&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_rejunity_atari2600.json" class="featured-card" target="_blank">
+                    <h3>Tiny Atari 2600</h3>
+                    <p class="featured-slug">tt_um_rejunity_atari2600</p>
+                    <p class="featured-desc">A tiny-atari-2600 silicon clone featuring a rich ROM subsystem.</p>
+                </a>
+                <a href="viewer.html?gds=https%3A%2F%2Fraw.githubusercontent.com%2FTinyTapeout%2Ftinytapeout-09%2Fmain%2Fprojects%2Ftt_um_oscillating_bones%2Ftt_um_oscillating_bones.gds&metadata=https%3A%2F%2Findex.tinytapeout.com%2Ftt09%2Ftt_um_oscillating_bones.json" class="featured-card" target="_blank">
+                    <h3>Oscillating Bones</h3>
+                    <p class="featured-slug">tt_um_oscillating_bones</p>
+                    <p class="featured-desc">An experimental hardware design from tinytapeout-09 showcasing unique physics-based oscillations.</p>
+                </a>
+                <a href="viewer.html?gds=gallery%2Fmultiplier8.oas" class="featured-card" target="_blank">
+                    <h3>8-bit Multiplier</h3>
+                    <p class="featured-slug">gallery/multiplier8.oas</p>
+                    <p class="featured-desc">A standard library 8-bit multiplier demonstrating basic combinational logic.</p>
+                </a>
+            </div>
+        </section>
+
         <section id="shuttle-selection" class="selection-section">
             <h2 class="section-title">Select a Shuttle</h2>
             <div class="table-container">

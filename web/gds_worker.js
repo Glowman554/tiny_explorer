@@ -272,11 +272,11 @@ function checkClockEdge() {
     return edgeDetected;
 }
 
-function sendSimUpdate() {
+function sendSimUpdate(forceWireData = false) {
     const payload = { type: 'simUpdate' };
     const transferables = [];
     
-    if (instance.exports.wasm_wireData_ptr) {
+    if (forceWireData && instance.exports.wasm_wireData_ptr) {
         const data = new Uint8Array(instance.exports.memory.buffer, instance.exports.wasm_wireData_ptr(), instance.exports.wasm_wireData_size()).slice();
         payload.wireData = data;
         transferables.push(data.buffer);
@@ -373,7 +373,7 @@ function simLoop() {
     if (didWork || (now - lastSimUpdate) > 100) {
         // limit UI updates to ~60fps (16ms)
         if ((now - lastSimUpdate) >= 16) {
-            sendSimUpdate();
+            sendSimUpdate(didWork);
         }
     }
     

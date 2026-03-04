@@ -45,6 +45,12 @@ async function init() {
         if (e.target === modalOverlay) closeModal();
     });
 
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !modalOverlay.classList.contains('hidden')) {
+            closeModal();
+        }
+    });
+
     // Initial check for hash
     handleHashChange();
 }
@@ -131,7 +137,7 @@ async function selectShuttle(shuttle, updateHash = true) {
         
         projectCountBadge.textContent = `${currentProjects.length} projects`;
         renderProjects(filteredProjects);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        //window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
         console.error('Error fetching projects:', error);
         projectBody.innerHTML = `<tr><td colspan="5"><div class="loader-container"><p>Error loading projects.</p></div></td></tr>`;
@@ -160,6 +166,8 @@ function renderProjects(projects, query = '') {
  
     projects.forEach(project => {
         const row = document.createElement('tr');
+        row.className = 'selectable-row';
+        row.onclick = () => openGdsViewer(project.macro);
         row.innerHTML = `
             <td>
                 <div class="project-title">${highlightText(project.title, query) || 'Untitled Project'}</div>
@@ -173,12 +181,16 @@ function renderProjects(projects, query = '') {
             <td class="project-desc">${highlightText(project.description, query) || 'No description provided.'}</td>
             <td>
                 <div class="actions">
-                    <button class="action-link meta-btn" onclick='showProjectMetadata(${JSON.stringify(project).replace(/'/g, "&apos;")})' title="View JSON Metadata">
-                        JSON
+                    <a href="https://tinytapeout.com/runs/${selectedShuttle.id}/${project.macro}/" target="_blank" onclick="event.stopPropagation()" class="action-link icon-only" title="Tiny Tapeout Project Page">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    </a>
+                    <button class="action-link meta-btn icon-only" onclick='event.stopPropagation(); showProjectMetadata(${JSON.stringify(project).replace(/'/g, "&apos;")})' title="JSON Metadata">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
                     </button>
-                    <button class="action-link gds-btn" onclick="openGdsViewer('${project.macro}')" title="View GDS">
-                        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></button>
-                    <a href="https://tinytapeout.com/runs/${selectedShuttle.id}/${project.macro}/" target="_blank" class="action-link" title="Tiny Tapeout Project Page">Proj →</a>
+                    <button class="action-link gds-btn" onclick="event.stopPropagation(); openGdsViewer('${project.macro}')" title="View GDS">
+                        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                        View
+                    </button>
                 </div>
             </td>
         `;
@@ -215,13 +227,14 @@ async function openGdsViewer(macro) {
     }
 
     const brUrl = baseUrl + '.br';
+    const metadataUrl = `${API_BASE}/${selectedShuttle.id}/${macro}.json`;
     const pdk = selectedShuttle.pdk || '';
     
     // Check for GDS first, then .br as fallback
     try {
         const res = await fetch(baseUrl, { method: 'HEAD' });
         if (res.ok) {
-            window.open(`viewer.html?file=${encodeURIComponent(baseUrl)}&pdk=${pdk}`, '_blank');
+            window.open(`viewer.html?file=${encodeURIComponent(baseUrl)}&pdk=${pdk}&metadata=${encodeURIComponent(metadataUrl)}`, '_blank');
             return;
         }
     } catch (e) {
@@ -232,14 +245,14 @@ async function openGdsViewer(macro) {
     try {
         const res = await fetch(brUrl, { method: 'HEAD' });
         if (res.ok) {
-            window.open(`viewer.html?file=${encodeURIComponent(brUrl)}&pdk=${pdk}`, '_blank');
+            window.open(`viewer.html?file=${encodeURIComponent(brUrl)}&pdk=${pdk}&metadata=${encodeURIComponent(metadataUrl)}`, '_blank');
             return;
         }
     } catch (e) {
         console.warn('.br check failed:', e);
     }
     
-    window.open(`viewer.html?file=${encodeURIComponent(baseUrl)}&pdk=${pdk}`, '_blank');
+    window.open(`viewer.html?file=${encodeURIComponent(baseUrl)}&pdk=${pdk}&metadata=${encodeURIComponent(metadataUrl)}`, '_blank');
 }
 
 // Handle Search
@@ -270,10 +283,9 @@ function showShuttleSelection(updateHash = true) {
     projectSection.classList.add('hidden');
     shuttleSelection.classList.remove('hidden');
     searchInput.value = '';
-    currentProjects = [];
     filteredProjects = [];
     selectedShuttle = null;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    shuttleSelection.scrollIntoView({ behavior: 'smooth' });
 }
 
 

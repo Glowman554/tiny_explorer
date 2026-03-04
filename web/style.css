@@ -62,6 +62,92 @@ body {
     margin: 0 auto;
 }
 
+/* About & Featured Sections */
+.about-section {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 3rem;
+}
+
+.about-content p {
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+    font-size: 1.05rem;
+}
+
+.about-content ul {
+    margin-bottom: 1rem;
+    padding-left: 1.5rem;
+    color: var(--text-secondary);
+}
+
+.about-content li {
+    margin-bottom: 0.5rem;
+}
+
+.about-content a {
+    color: var(--accent-cyan);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.about-content a:hover {
+    text-decoration: underline;
+}
+
+.about-content p strong, .about-content li strong {
+    color: var(--text-primary);
+}
+
+.featured-section {
+    margin-bottom: 4rem;
+}
+
+.featured-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+}
+
+.featured-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    text-decoration: none;
+    transition: all var(--transition-speed);
+    display: flex;
+    flex-direction: column;
+}
+
+.featured-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--accent-cyan);
+    box-shadow: 0 8px 24px rgba(0, 240, 255, 0.1);
+}
+
+.featured-card h3 {
+    color: var(--text-primary);
+    font-size: 1.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.featured-slug {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+    font-family: monospace;
+    word-break: break-all;
+}
+
+.featured-desc {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    flex-grow: 1;
+}
+
 /* Shuttle Selection */
 .selection-section {
     margin-top: 3rem;
@@ -88,31 +174,34 @@ body {
     width: 100%;
     border-collapse: collapse;
     text-align: left;
-    min-width: 800px; /* Reduced since macro is merged */
+    table-layout: fixed;
 }
 
 
 
 .explorer-table th {
-    padding: 1.25rem 1.5rem;
+    padding: 1rem 1rem;
     font-weight: 600;
     color: var(--text-secondary);
     border-bottom: 1px solid var(--card-border);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     text-transform: uppercase;
     letter-spacing: 1px;
 }
 
 .explorer-table td {
-    padding: 1.25rem 1.5rem;
+    padding: 1rem 1rem;
     border-bottom: 1px solid var(--card-border);
     vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .explorer-table th:nth-child(1), .explorer-table td:nth-child(1) { width: 25%; } /* Project + Macro */
-.explorer-table th:nth-child(2), .explorer-table td:nth-child(2) { width: 15%; } /* Author */
-.explorer-table th:nth-child(3), .explorer-table td:nth-child(3) { width: auto; } /* Description */
-.explorer-table th:nth-child(4), .explorer-table td:nth-child(4) { width: 130px; } /* Actions */
+.explorer-table th:nth-child(2), .explorer-table td:nth-child(2) { width: 14%; } /* Author */
+.explorer-table th:nth-child(3), .explorer-table td:nth-child(3) { width: auto; white-space: normal; } /* Description */
+.explorer-table th:nth-child(4), .explorer-table td:nth-child(4) { width: 180px; text-align: right; overflow: visible; } /* Actions */
 
 
 
@@ -286,16 +375,18 @@ mark {
     display: flex;
     gap: 0.5rem;
     align-items: center;
+    justify-content: flex-end;
+    padding: 4px; /* Space for shadows/scale */
+    overflow: visible;
 }
 
 .action-link {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     font-weight: 600;
     color: var(--accent-cyan);
     text-decoration: none;
-    padding: 0;
-    height: 36px;
-    min-width: 36px;
+    height: 32px;
+    padding: 0 1rem;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--card-border);
     border-radius: 8px;
@@ -303,9 +394,17 @@ mark {
     align-items: center;
     justify-content: center;
     gap: 0.4rem;
-    padding: 0 0.75rem;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     white-space: nowrap;
+    flex-shrink: 0;
+    cursor: pointer;
+    border: 1px solid var(--card-border);
+}
+
+.action-link.icon-only {
+    width: 32px;
+    padding: 0;
+    border-radius: 50%; /* Circular for small icons */
 }
 
 
@@ -317,18 +416,19 @@ mark {
 }
 
 .gds-btn {
-    background: rgba(161, 0, 255, 0.1);
-    border-color: rgba(161, 0, 255, 0.3);
-    color: var(--accent-purple);
-    padding: 0; /* Square button for GDS */
-    width: 36px;
+    background: var(--accent-purple);
+    border-color: var(--accent-purple);
+    color: white;
+    font-weight: 700;
+    box-shadow: 0 0 10px rgba(188, 140, 255, 0.3);
 }
 
 
 .gds-btn:hover {
-    background: var(--accent-purple);
-    color: white;
-    box-shadow: 0 0 15px var(--secondary-glow);
+    background: #d0b0ff;
+    border-color: #d0b0ff;
+    color: #050a15;
+    box-shadow: 0 0 20px var(--secondary-glow);
 }
 
 /* Loader */

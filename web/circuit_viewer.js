@@ -563,14 +563,14 @@ export class CircuitViewer {
             } else if (data.type === "callResult") {
                 if (data.wireData) {
                     this.updateNetStatesFromWireData(data.wireData);
-                    this.onUpdateCircuit?.(data.wireData);
+                    this.onUpdateCircuit?.();
                 }
             } else if (data.type === 'simUpdate') {
                 if (this.simInputPauseActive) return; // Drop stale incoming frames while freezing for input manipulation
                 
                 if (data.wireData) {
                     this.updateNetStatesFromWireData(data.wireData);
-                    this.onUpdateCircuit?.(data.wireData);
+                    this.onUpdateCircuit?.();
                 }
                 if (data.vga) {
                     this.onVgaFrame?.(data.vga);
@@ -815,7 +815,7 @@ export class CircuitViewer {
 
     updateNetStatesFromWireData(wireData) {
         if (!this.netStateData) return;
-        
+
         for (let i = 0; i < wireData.length; i++) {
             if (i < this.netStateData.length) {
                 // Bit 0: Logic Value

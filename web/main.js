@@ -10,8 +10,37 @@ window.addEventListener('DOMContentLoaded', () => {
 
     const params = new URLSearchParams(window.location.search);
     const isLocal = params.get('local') === '1';
-    const gds = params.get('file');
+    const gds = params.get('file') || params.get('gds');
     const pdk = params.get('pdk') || '';
+    const metadataUrl = params.get('metadata');
+    
+    if (metadataUrl) {
+        fetch(metadataUrl)
+            .then(res => res.json())
+            .then(data => {
+                const allStrings = [];
+                const searchStrings = (obj) => {
+                    if (!obj) return;
+                    if (typeof obj === 'string') {
+                        allStrings.push(obj.toLowerCase());
+                    } else if (Array.isArray(obj)) {
+                        obj.forEach(searchStrings);
+                    } else if (typeof obj === 'object') {
+                        Object.values(obj).forEach(searchStrings);
+                    }
+                };
+                searchStrings(data.project?.pins || data.pins || data.pinout || data.yaml?.pinout);
+
+                const hasVGA = allStrings.some(p => p.includes('hsync') || p.includes('vsync') || p.includes('vga'));
+                if (hasVGA) {
+                    const vgaBtn = document.getElementById('toggleVgaBtn');
+                    if (vgaBtn && !vgaBtn.classList.contains('btn-active')) {
+                        vgaBtn.click();
+                    }
+                }
+            })
+            .catch(err => console.warn("Failed to fetch project metadata:", err));
+    }
 
     // Create a hidden file input for local uploads
     const localInput = document.createElement('input');
