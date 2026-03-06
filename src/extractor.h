@@ -33,10 +33,9 @@ struct CircuitExtractor {
 
     std::vector<int> instOffsets;
     std::vector<int> segment2flat;
-    DSU globalDSU;
+    DSU segemntDSU;
     struct LabeledWire { int id; std::string name; LayerID layer; };
     std::vector<LabeledWire> labeledWires;
-    DSU componentDSU;
     std::vector<int> wire2root;
 
     std::vector<RectWire> flatRects;
@@ -194,7 +193,7 @@ struct CircuitExtractor {
             instOffsets[i] = totalSegments;
             totalSegments += (int)cells[instances[i].cell_id].wireCount;
         }
-        globalDSU.reset(totalSegments);
+        segemntDSU.reset(totalSegments);
 
         for (int i=L_N_TERM; i<L_COUNT; ++i) {
             auto & layer = instLayers[i];
@@ -226,22 +225,22 @@ struct CircuitExtractor {
         collideTrees(qA.bvh, cellA.rects, qB.bvh, cellB.rects, [&](int rA, int rB) {
             int wireA = cellA.rect2wire[rA];
             int wireB = cellB.rect2wire[rB];
-            globalDSU.unite(offsA + wireA, offsB + wireB);
+            segemntDSU.unite(offsA + wireA, offsB + wireB);
         }, pred);
     }
 
     void buildNetlist() {
-        segment2flat.assign(globalDSU.p.size(), DSU::NeedsID);
-        if (globalDSU.find(0) == globalDSU.find(1)) {
+        segment2flat.assign(segemntDSU.p.size(), DSU::NeedsID);
+        if (segemntDSU.find(0) == segemntDSU.find(1)) {
             printf("WARNING: GND and PWR are merged in DSU!\n");
         }
-        segment2flat[globalDSU.find(0)] = 0; // GND
-        segment2flat[globalDSU.find(1)] = 1; // PWR
+        segment2flat[segemntDSU.find(0)] = 0; // GND
+        segment2flat[segemntDSU.find(1)] = 1; // PWR
         
         int next_id = 2;
         const Cell& top = cells[instances[0].cell_id];  
         for (auto const& [name, l] : top.labels) {
-            int root = globalDSU.find(top.rect2wire[l.rectIdx]);
+            int root = segemntDSU.find(top.rect2wire[l.rectIdx]);
             if (segment2flat[root] == DSU::NeedsID) {
                 segment2flat[root] = next_id++;
             }
@@ -251,9 +250,7 @@ struct CircuitExtractor {
             }
         }
 
-        int wireCount = globalDSU.assign_ids(segment2flat, next_id);
-        componentDSU.reset(wireCount);
-
+        int wireCount = segemntDSU.assign_ids(segment2flat, next_id);
         for (size_t inst_id = 0; inst_id < instances.size(); inst_id++) {
             const Cell& cell = cells[instances[inst_id].cell_id];
             int offset = instOffsets[inst_id];
@@ -262,9 +259,6 @@ struct CircuitExtractor {
                 int t0 = segment2flat[offset + fet.term[0]];
                 int t1 = segment2flat[offset + fet.term[1]];
                 builder.add_fet(gate, t0, t1, fet.type, inst_id);
-                if (t0 >= 2 && t1 >= 2) {
-                    componentDSU.unite(t0, t1);
-                }
             }
         }
 
@@ -321,21 +315,6 @@ struct CircuitExtractor {
         printf("Total instances: %zu\n", instances.size());
         printf("Global Netlist Statistics:\n  Segments: %zu\n  Wires: %zu\n  FETs: %zu\n  INVs: %d\n", 
                segment2flat.size(), circuit.wire_n(), builder.fets.size(), builder.inverter_n);
-
-        int totalComp = 0;
-        int maxCompSize = 0;
-        int totalCompWires = 0;
-        for (int i = 2; i < (int)componentDSU.p.size(); ++i) {
-            if (componentDSU.is_root(i)) {
-                totalComp++;
-                int size = -componentDSU.p[i];
-                if (size > maxCompSize) maxCompSize = size;
-                totalCompWires += size;
-            }
-        }
-        float avgCompSize = totalComp > 0 ? (float)totalCompWires / totalComp : 0.0f;
-        printf("  Components: %d\n  Largest component: %d wires\n  Average component: %.1f wires\n",
-               totalComp, maxCompSize, avgCompSize);
     }
 
     std::vector<std::pair<InstID, int>> wire_to_instances(int globalWire) {
