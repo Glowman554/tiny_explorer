@@ -10,6 +10,7 @@
 
 #include <gdstk/gdstk.hpp>
 
+#include "cells.h"
 #include "extractor.h"
 #include "fetsim.h"
 #include "vga.h"
@@ -63,7 +64,20 @@ Module* g_mod() {
 
 #define WASM_ARRAY(NAME) WASM_ARRAY_(NAME, NAME)
 
-#define WASM_INDEXED_ARRAY_(NAME, COLLECTION, ATTR) \
+#define WASM_INDEXED_ARRAY_(NAME, COLLECTION) \
+    WASM_EXPORT("wasm_" #NAME "_ptr") \
+    extern "C" void* wasm_##NAME##_ptr(int idx) { \
+        if (idx < 0 || idx >= (int)g_mod()->COLLECTION.size()) return nullptr; \
+        return (void*)g_mod()->COLLECTION[idx].data(); \
+    } \
+    WASM_EXPORT("wasm_" #NAME "_size") \
+    extern "C" uint32_t wasm_##NAME##_size(int idx) { \
+        if (idx < 0 || idx >= (int)g_mod()->COLLECTION.size()) return 0; \
+        auto & arr = g_mod()->COLLECTION[idx]; \
+        return (uint32_t)(arr.size() * sizeof(arr[0])); \
+    }
+
+#define WASM_INDEXED_ARRAY_ATTR_(NAME, COLLECTION, ATTR) \
     WASM_EXPORT("wasm_" #NAME "_ptr") \
     extern "C" void* wasm_##NAME##_ptr(int idx) { \
         if (idx < 0 || idx >= (int)g_mod()->COLLECTION.size()) return nullptr; \
@@ -81,6 +95,13 @@ Module* g_mod() {
     extern "C" const char* wasm_##NAME(int idx) { \
         if (idx < 0 || idx >= (int)g_mod()->COLLECTION.size()) return nullptr; \
         return g_mod()->COLLECTION[idx].ATTR.c_str(); \
+    }
+
+#define WASM_INDEXED_INT_(NAME, COLLECTION, ATTR) \
+    WASM_EXPORT("wasm_" #NAME) \
+    extern "C" const int wasm_##NAME(int idx) { \
+        if (idx < 0 || idx >= (int)g_mod()->COLLECTION.size()) return 0; \
+        return g_mod()->COLLECTION[idx].ATTR; \
     }
 
 #define WASM_INT_(NAME, ATTR) \
@@ -116,6 +137,7 @@ extern "C" {
 
     WASM_ARRAY_(flatRects, extractor.flatRects);
     WASM_ARRAY_(flatLayerOffsets, extractor.flatLayerOffsets);
+    WASM_INDEXED_ARRAY_(flatBVHs, extractor.flatBVHs);
     WASM_ARRAY_(wireData, circuit.wire_data);
     WASM_ARRAY_(fets, extractor.builder.fets);
     WASM_INT_(labeledCount, extractor.labeledWires.size());
@@ -172,8 +194,8 @@ extern "C" {
 
     WASM_INT_(cell_count, extractor.cells.size());
     WASM_INDEXED_STR_(cell_name, extractor.cells, name);
-    WASM_INDEXED_ARRAY_(cell_rects, extractor.cells, rects);
-    WASM_INDEXED_ARRAY_(cell_rect2wire, extractor.cells, rect2wire);
+    WASM_INDEXED_ARRAY_ATTR_(cell_rects, extractor.cells, rects);
+    WASM_INDEXED_ARRAY_ATTR_(cell_rect2wire, extractor.cells, rect2wire);
 
     WASM_EXPORT("wasm_cell_bvh_ptr")
     void* wasm_cell_bvh_ptr(int cell_idx, int layer_idx) {
@@ -189,13 +211,20 @@ extern "C" {
         return (uint32_t)g_mod()->extractor.cells[cell_idx].layers[layer_idx].bvh.size() * sizeof(BVHNode);
     }
 
-    WASM_INDEXED_ARRAY_(layer_bvh, extractor.instLayers, bvh);
-    WASM_INDEXED_ARRAY_(layer_instances, extractor.instLayers, instances);
+    WASM_INDEXED_ARRAY_ATTR_(layer_bvh, extractor.instLayers, bvh);
+    WASM_INDEXED_ARRAY_ATTR_(layer_instances, extractor.instLayers, instances);
 
     WASM_EXPORT("wasm_strlen")
     uint32_t wasm_strlen(const char* s) {
         return s ? (uint32_t)strlen(s) : 0;
     }
+
+    // WASM_EXPORT("wasm_query_layer")
+    // int wasm_query_wire(LayerID layer, int x0, int y0, int x1, int y1) {
+
+
+    // }
+
 }
 
 #ifdef WASM
@@ -210,13 +239,14 @@ int main() {
     wasm_arena_init(1);
     //const char * path = "gds/ihp-25a/tt_um_znah_vga_ca.gds";
     //const char * path = "gds/sky-25b/tt_um_pongsagon_tinygpu_v2.oas";
-    const char * path = "gds/09/tt_um_rejunity_atari2600.gds";
-    //const char * path = "gds/09/tt_um_znah_vga_ca.gds";
+    //const char * path = "gds/09/tt_um_rejunity_atari2600.gds";
+    const char * path = "gds/09/tt_um_znah_vga_ca.gds";
     //const char * path = "gds/gf-0p2/tt_um_2048_vga_game.oas";
     //const char * path = "gds/09/tt_um_a1k0n_nyancat.gds";
     //const char * path = "gds/08/tt_um_a1k0n_vgadonut.gds";
     //const char * path = "gds/09/tt_um_oscillating_bones.gds";
     //const char * path = "gds/multiplier8.oas";
+    //const char * path = "gds/ihp_ca.gds";
     printf("Loading: %s\n", path);
 
     Module* mod = g_mod();

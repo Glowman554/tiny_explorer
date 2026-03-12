@@ -254,9 +254,9 @@ class Explorer:
 
     @property
     def rects(self):
-        """Returns nx5 int32 array of [x1, y1, x2, y2, wire_id]."""
+        """Returns nx5 int32 array of [x1, y1, x2, y2, wire_id, tree_root]."""
         arr = self._get_array("flatRects", np.int32)
-        return arr.reshape(-1, 5) if arr is not None else None
+        return arr.reshape(-1, 6) if arr is not None else None
 
     @property
     def wire_data(self):
@@ -294,6 +294,13 @@ class Explorer:
         """Returns nx7 int32 array of [x1, y1, x2, y2, first, count, left]."""
         ptr = self.exports["wasm_layer_bvh_ptr"](self.store, layer_idx)
         size = self.exports["wasm_layer_bvh_size"](self.store, layer_idx)
+        if ptr == 0 or size == 0: return None
+        return self._get_mem_view()[ptr:ptr+size].view(np.int32).reshape(-1, 7)
+
+    def get_flat_bvh(self, layer_idx):
+        """Returns nx7 int32 array of [x1, y1, x2, y2, first, count, left] for full geometry."""
+        ptr = self.exports["wasm_flatBVHs_ptr"](self.store, layer_idx)
+        size = self.exports["wasm_flatBVHs_size"](self.store, layer_idx)
         if ptr == 0 or size == 0: return None
         return self._get_mem_view()[ptr:ptr+size].view(np.int32).reshape(-1, 7)
 

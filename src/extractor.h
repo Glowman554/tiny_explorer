@@ -1,6 +1,9 @@
 #pragma once
 
 #include "cell_processing.h"
+#include "cells.h"
+#include "geom.h"
+#include <vector>
 
 using CellID = int;
 using InstID = int;
@@ -40,6 +43,8 @@ struct CircuitExtractor {
 
     std::vector<RectWire> flatRects;
     std::array<uint32_t, L_COUNT + 1> flatLayerOffsets;
+    std::array<std::vector<BVHNode>, L_COUNT> flatBVHs;
+
 
     bool run(const char * path) {
         if (!load(path)) return false;
@@ -304,6 +309,7 @@ struct CircuitExtractor {
                 float pct = initial > 0 ? (float)discarded * 100.0f / initial : 0.0f;
                 printf("  %-10s: %zu rects (%d discarded, %.1f%%)\n", getLayerName((LayerID)li), layerTemp.size(), discarded, pct);
                 flatRects.insert(flatRects.end(), layerTemp.begin(), layerTemp.end());
+                buildLayerBVH(flatRects, flatLayerOffsets[li], layerTemp.size(), flatBVHs[li]);
             }
         }
         flatLayerOffsets[L_COUNT] = (uint32_t)flatRects.size();

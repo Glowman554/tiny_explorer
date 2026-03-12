@@ -96,9 +96,11 @@ inline const PdkMap& getPdkMaps() {
             {{ 8, 0}, L_LI1},  {{19, 0}, L_MCON},
             {{ 8, 1}, L_LI1},  {{ 8, 2}, L_LI1}, {{ 8,25}, L_LI1}, // labels
             {{10, 0}, L_MET1}, {{29, 0}, L_VIA1}, {{10,25}, L_MET1}, // labels
-            {{30, 0}, L_MET2}, {{49, 0}, L_VIA2},
-            {{50, 0}, L_MET3}, {{66, 0}, L_VIA3},
-            {{67, 0}, L_MET4}, {{67,25}, L_MET4} // labels
+            {{30, 0}, L_MET2}, {{30, 25}, L_MET2}, {{49, 0}, L_VIA2},
+            {{50, 0}, L_MET3}, {{50, 25}, L_MET3}, {{66, 0}, L_VIA3},
+            {{67, 0}, L_MET4}, {{67,25}, L_MET4}, // labels
+            {{125, 0}, L_VIA4},
+            {{126, 0}, L_MET5}, {{126, 2}, L_MET5}, {{126, 25}, L_MET5} // labels
         }},
         {"gf180mcuD", {
             {{21, 0}, L_NWELL}, {{22, 0}, L_DIFF},
