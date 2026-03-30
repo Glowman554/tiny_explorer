@@ -563,17 +563,16 @@ export class CircuitViewer {
                 this.processParsedData(data.stats, data.wireNames);
             } else if (data.type === "callResult") {
                 if (data.wireData) {
-                    this.updateNetStatesFromWireData(data.wireData);
+                    this.updateNetStatesFromWireData(data.wireData, data.isSettled);
                     this.onUpdateCircuit?.(data.wireData);
                 }
             } else if (data.type === 'simUpdate') {
                 if (this.simInputPauseActive) return; // Drop stale incoming frames while freezing for input manipulation
-                
+
                 if (data.wireData) {
-                    this.updateNetStatesFromWireData(data.wireData);
+                    this.updateNetStatesFromWireData(data.wireData, data.isSettled);
                     this.onUpdateCircuit?.(data.wireData);
-                }
-                if (data.vga) {
+                }                if (data.vga) {
                     this.onVgaFrame?.(data.vga);
                 }
             } else if (data.type === 'ack_response') {

@@ -205,10 +205,12 @@ onmessage = function(e) {
             return;
         }
         const result = fn(...(args || []));
-        
+
         const payload = { type: 'callResult', name, result };
-        const transferables = [];
-        
+        if (instance.exports.wasm_circuit_is_settled) {
+            payload.isSettled = !!instance.exports.wasm_circuit_is_settled();
+        }
+        const transferables = [];        
         if (returnArrays) {
             returnArrays.forEach(arrName => {
                 const getPtr = instance.exports[`wasm_${arrName}_ptr`];
@@ -250,6 +252,7 @@ onmessage = function(e) {
 // MARK: - Simulation Subsystem
 let waveAccumulator = 0;
 let lastSimLoopTime = 0;
+let wireDataNeedsClear = false;
 
 function scheduleNext(cb) {
     if (typeof requestAnimationFrame !== 'undefined') {
@@ -282,6 +285,9 @@ function sendSimUpdate(forceWireData = false) {
     if (forceWireData && instance.exports.wasm_wireData_ptr) {
         const data = new Uint8Array(instance.exports.memory.buffer, instance.exports.wasm_wireData_ptr(), instance.exports.wasm_wireData_size()).slice();
         payload.wireData = data;
+        if (instance.exports.wasm_circuit_is_settled) {
+            payload.isSettled = !!instance.exports.wasm_circuit_is_settled();
+        }
         transferables.push(data.buffer);
     }
     
@@ -374,12 +380,23 @@ function simLoop() {
     }
     
     const forceResync = (now - lastSimUpdate) > 100;
+    const isSettled = instance.exports.wasm_circuit_is_settled();
+    
+    if (didWork) {
+        wireDataNeedsClear = true;
+    }
+    
+    let sendWireData = didWork;
+    if (!didWork && forceResync && isSettled && wireDataNeedsClear) {
+        sendWireData = true;
+        wireDataNeedsClear = false;
+    }
+    
     if (didWork || forceResync) {
         // limit UI updates to ~60fps (16ms)
         // BUT: If the circuit is settled and we just did work, this is a 'final' state, send it immediately
-        const isSettled = instance.exports.wasm_circuit_is_settled();
         if ((now - lastSimUpdate) >= 16 || (isSettled && didWork)) {
-            sendSimUpdate(didWork || forceResync);
+            sendSimUpdate(sendWireData);
         }
     }
     
