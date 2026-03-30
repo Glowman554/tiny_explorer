@@ -131,7 +131,7 @@ export const FS_SOURCE = `#version 300 es
 
 // MARK: - Core Configuration
 const h_met=200, h_via=500;
-let _z = 0, _h = 0;
+let _z = 0, _h = 0, _met1 = 0;
 export const LAYER_CONFIG = [
     { name: "ERRORS",  color: [1.0, 0.5, 0.0, 1.0], z: 5000, h: 500 },
     { name: "NWELL",   color: [0.3, 0.1, 0.2, 1.0], z: _z,    h: _h=100 },
@@ -143,7 +143,7 @@ export const LAYER_CONFIG = [
     { name: "LICON",   color: [0.5, 0.5, 0.5, 1.0], z: _z+5,   h: _h=h_via+h_met-5 },
     { name: "LI1",     color: [0.3, 0.3, 0.9, 1.0], z: _z+=_h, h: _h=h_met },
     { name: "MCON",    color: [0.6, 0.6, 0.6, 1.0], z: _z+=_h, h: _h=h_via },
-    { name: "MET1",    color: [0.7, 0.4, 0.8, 1.0], z: _z+=_h, h: _h=h_met },
+    { name: "MET1",    color: [0.7, 0.4, 0.8, 1.0], z: _met1=_z+=_h, h: _h=h_met },
     { name: "VIA1",    color: [0.8, 0.8, 0.8, 1.0], z: _z+=_h, h: _h=h_via },
     { name: "MET2",    color: [0.4, 0.8, 0.8, 1.0], z: _z+=_h, h: _h=h_met },
     { name: "VIA2",    color: [0.9, 0.9, 0.9, 1.0], z: _z+=_h, h: _h=h_via },
@@ -152,6 +152,7 @@ export const LAYER_CONFIG = [
     { name: "MET4",    color: [0.2, 0.6, 0.2, 1.0], z: _z+=_h, h: _h=h_met },
     { name: "VIA4",    color: [0.9, 0.9, 0.9, 1.0], z: _z+=_h, h: _h=h_via },
     { name: "MET5",    color: [0.6, 0.2, 0.6, 1.0], z: _z+=_h, h: _h=h_met },
+    { name: "CELLS",   color: [0.3, 0.7, 0.7, 1.0], z: 0, h: _met1 },
 ].map(l => ({
     ...l, 
     isExempt: l.name.toUpperCase().endsWith("TERM") || l.name.toUpperCase() === "LICON"
@@ -177,7 +178,8 @@ export class CircuitViewer {
             showBoundaries: false,
             showPowerNets: true,
             stateMix: 0.0,
-            explode: 1.0
+            explode: 1.0,
+            renderMode: 'standard'
         };
         
         this.isDragging = false;
@@ -473,6 +475,13 @@ export class CircuitViewer {
         const { rect: a_rect, net: a_net } = this.attribs;
 
         for (const lid of sortedLidsForRender) {
+            const lidNum = parseInt(lid);
+            if (this.view.renderMode === 'cells') {
+                if (lidNum >= 1 && lidNum < 10) continue; // Skip layers below MET1 (NWELL to MCON)
+            } else {
+                if (lidNum === 19) continue; // Skip CELLS layer in standard mode
+            }
+
             const layer = this.layers[lid];
             if (!layer || layer.count === 0) continue;
             

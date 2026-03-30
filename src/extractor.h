@@ -282,32 +282,49 @@ struct CircuitExtractor {
             if (li == L_DIFF || li == L_NWELL) continue;
             
             layerTemp.clear();
-            for (size_t ii = 0; ii < instances.size(); ii++) {
-                const auto& inst = instances[ii];
-                const auto& cell = cells[inst.cell_id];
-                if (cell.isFiller) continue;
-                const auto& layer = cell.layers[li];
-                if (layer.rectCount == 0) continue;
-                
-                for (uint32_t ri = 0; ri < layer.rectCount; ri++) {
-                    uint32_t rectIdx = layer.rectStart + ri;
-                    int flatWire = -1; // some rects don't have wire_id (NWELL)
-                    int treeId = -1;
-                    int localWire = cell.rect2wire[rectIdx];
-                    if (localWire >= 0) {
-                        flatWire = segment2flat[instOffsets[ii] + localWire];
-                        treeId = wire2root[flatWire];
+            if (li == L_CELLS) {
+                for (size_t ii = 0; ii < instances.size(); ii++) {
+                    const auto& inst = instances[ii];
+                    const auto& cell = cells[inst.cell_id];
+                    if (cell.isFiller || !isStandardCell(cell.name)) continue;
+                    int firstOutputWire = -1;
+                    if (!cell.outputWires.empty()) {
+                        firstOutputWire = segment2flat[instOffsets[ii] + cell.outputWires[0]];
                     }
-                    Rect r = inst.tform.apply(cell.rects[rectIdx]);
-                    layerTemp.push_back({r, flatWire, treeId});
+                    int treeId = firstOutputWire >= 0 ? wire2root[firstOutputWire] : -1;
+                    Rect r = inst;
+                    layerTemp.push_back({r, firstOutputWire, treeId});
+                }
+            } else {
+                for (size_t ii = 0; ii < instances.size(); ii++) {
+                    const auto& inst = instances[ii];
+                    const auto& cell = cells[inst.cell_id];
+                    if (cell.isFiller) continue;
+                    const auto& layer = cell.layers[li];
+                    if (layer.rectCount == 0) continue;
+                    
+                    for (uint32_t ri = 0; ri < layer.rectCount; ri++) {
+                        uint32_t rectIdx = layer.rectStart + ri;
+                        int flatWire = -1;
+                        int treeId = -1;
+                        int localWire = cell.rect2wire[rectIdx];
+                        if (localWire >= 0) {
+                            flatWire = segment2flat[instOffsets[ii] + localWire];
+                            treeId = wire2root[flatWire];
+                        }
+                        Rect r = inst.tform.apply(cell.rects[rectIdx]);
+                        layerTemp.push_back({r, flatWire, treeId});
+                    }
+                }
+                if (!layerTemp.empty()) {
+                    int discarded = optimizeRects(layerTemp);
+                    int initial = (int)layerTemp.size() + discarded;
+                    float pct = initial > 0 ? (float)discarded * 100.0f / initial : 0.0f;
+                    printf("  %-10s: %zu rects (%d discarded, %.1f%%)\n", getLayerName((LayerID)li), layerTemp.size(), discarded, pct);
                 }
             }
             
             if (!layerTemp.empty()) {
-                int discarded = optimizeRects(layerTemp);
-                int initial = (int)layerTemp.size() + discarded;
-                float pct = initial > 0 ? (float)discarded * 100.0f / initial : 0.0f;
-                printf("  %-10s: %zu rects (%d discarded, %.1f%%)\n", getLayerName((LayerID)li), layerTemp.size(), discarded, pct);
                 flatRects.insert(flatRects.end(), layerTemp.begin(), layerTemp.end());
                 buildLayerBVH(flatRects, flatLayerOffsets[li], layerTemp.size(), flatBVHs[li]);
             }

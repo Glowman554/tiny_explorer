@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
             "src/main.cpp",
             "src/wasm_allocator.cpp",
         },
-        .flags = &.{ "-std=c++17", "-fno-exceptions", "-fno-rtti", "-fno-sanitize=alignment" },
+        .flags = &.{ "-std=c++20", "-fno-exceptions", "-fno-rtti", "-fno-sanitize=alignment" },
     });
 
     // GDSTK Source Files

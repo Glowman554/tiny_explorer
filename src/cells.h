@@ -21,6 +21,7 @@ enum LayerID {
     L_MET3, L_VIA3,
     L_MET4, L_VIA4,
     L_MET5,
+    L_CELLS,
     L_COUNT
 };
 
@@ -41,6 +42,7 @@ struct Cell {
     struct Label { int32_t rectIdx; LayerID layerId; };
     std::map<std::string, Label> labels;
     std::vector<FET> fets;
+    std::vector<int> outputWires;
     
     // Special Nets
     int32_t groundRect = -1;
@@ -62,6 +64,10 @@ inline bool isFillerCell(const std::string& name) {
         name.find("__tap") != std::string::npos ||
         name.find("__endcap") != std::string::npos
     );
+}
+
+inline bool isStandardCell(const std::string& name) {
+    return name.starts_with("sg13g2_") | name.starts_with("sky130_") | name.starts_with("gf180mcu_");
 }
 
 inline bool isGroundLabel(const std::string& label) {
@@ -132,7 +138,7 @@ inline const char* getLayerName(LayerID id) {
         "ERROR", "NWELL", "DIFF", "CHANNEL", 
         "N_TERM", "P_TERM", "POLY", "LICON", "LI1", "MCON",
         "MET1", "VIA1", "MET2", "VIA2", "MET3", "VIA3",
-        "MET4", "VIA4", "MET5"
+        "MET4", "VIA4", "MET5", "CELLS"
     };
     if (id >= 0 && id < L_COUNT) return Names[id];
     return "UNKNOWN";

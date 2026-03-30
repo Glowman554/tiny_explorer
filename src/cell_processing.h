@@ -347,6 +347,28 @@ struct CellProcessor {
         resolveLabelsGdstk(gcell, cell, pdk);
         assignWireIDs(cell);
         extractFETs(cell);
+
+        // Find output wires: labeled and connected to both PFET and NFET (terminals)
+        std::vector<bool> hasPFET(cell.wireCount, false);
+        std::vector<bool> hasNFET(cell.wireCount, false);
+        for (const auto& fet : cell.fets) {
+            if (fet.type == FET::P) {
+                hasPFET[fet.term[0]] = true;
+                hasPFET[fet.term[1]] = true;
+            } else if (fet.type == FET::N) {
+                hasNFET[fet.term[0]] = true;
+                hasNFET[fet.term[1]] = true;
+            }
+        }
+        for (const auto& [name, l] : cell.labels) {
+            int root = cell.wireDSU.find(l.rectIdx);
+            int wireId = cell.rect2wire[root];
+            if (wireId < 0 || wireId >= (int)cell.wireCount) continue;
+            if (!hasPFET[wireId] || !hasNFET[wireId]) continue;
+            cell.outputWires.push_back(wireId);
+        }
+        unique_sort(cell.outputWires);
+
         cell.isFiller = isFillerCell(cell.name) && gcell->reference_array.count == 0;
         if (cell.rects.size() > 1000) {
             printf("Big cell: %s (%zu rects, %u wires, %zu FETs)\n", 

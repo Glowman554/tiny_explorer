@@ -10,7 +10,7 @@ INCLUDES = -Isrc -Ivendor/gdstk/include -Ivendor/gdstk/external -Ivendor/miniz -
 DEPFLAGS = -MMD -MP
 
 CFLAGS = $(COMMON_FLAGS) $(INCLUDES) $(DEPFLAGS) -std=gnu99
-CXXFLAGS = $(COMMON_FLAGS) $(INCLUDES) $(DEPFLAGS) -std=c++17
+CXXFLAGS = $(COMMON_FLAGS) $(INCLUDES) $(DEPFLAGS) -std=c++20
 
 # Source files
 MINIZ_SRC = vendor/miniz/miniz.c

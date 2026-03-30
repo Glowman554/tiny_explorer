@@ -195,6 +195,7 @@ export function bindViewControls(viewer) {
     on('stateMixSlider', 'oninput', (e) => { v.stateMix = parseFloat(e.target.value); update(); });
 
     on('boundaryToggle', 'onchange', (e) => { v.showBoundaries = e.target.checked; update(); });
+    on('cellModeToggle', 'onchange', (e) => { v.renderMode = e.target.checked ? 'cells' : 'standard'; update(); });
     on('powerNetToggle', 'onchange', (e) => { v.showPowerNets = e.target.checked; update(); });
 }
 
