@@ -177,8 +177,7 @@ export class CircuitViewer {
             showBoundaries: false,
             showPowerNets: true,
             stateMix: 0.0,
-            explode: 1.0,
-            renderMode: 'cube'
+            explode: 1.0
         };
         
         this.isDragging = false;
@@ -261,7 +260,7 @@ export class CircuitViewer {
             0,0,1, 1,0,1, 1,1,1, 0,1,1
         ]);
         const cubeIndices = new Uint16Array([
-            4, 5, 6, 4, 6, 7, // Top (First 6 indices = Quad)
+            4, 5, 6, 4, 6, 7, // Top
             0, 2, 1, 0, 3, 2, // Bottom
             0, 1, 5, 0, 5, 4, // Front
             2, 3, 7, 2, 7, 6, // Back
@@ -469,8 +468,6 @@ export class CircuitViewer {
             return reverseOrder ? (zB - zA) : (zA - zB);
         });
 
-        const isCube = this.view.renderMode === 'cube';
-        const indexCount = isCube ? 36 : 6;
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ebo);
 
         const { rect: a_rect, net: a_net } = this.attribs;
@@ -514,7 +511,7 @@ export class CircuitViewer {
                 gl.vertexAttribDivisor(this.attribs.tree, 1);
             }
 
-            gl.drawElementsInstanced(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0, layer.count);
+            gl.drawElementsInstanced(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0, layer.count);
         }
     }
 
@@ -709,12 +706,6 @@ export class CircuitViewer {
 
     setSoloLayer(lid) {
         this.soloLayerId = lid;
-        this.requestFrame();
-    }
-
-    setRenderMode(mode) {
-        if (mode !== 'quad' && mode !== 'cube') return;
-        this.view.renderMode = mode;
         this.requestFrame();
     }
 

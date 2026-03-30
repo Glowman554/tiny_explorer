@@ -196,7 +196,6 @@ export function bindViewControls(viewer) {
 
     on('boundaryToggle', 'onchange', (e) => { v.showBoundaries = e.target.checked; update(); });
     on('powerNetToggle', 'onchange', (e) => { v.showPowerNets = e.target.checked; update(); });
-    on('renderModeToggle', 'onchange', (e) => { viewer.setRenderMode(e.target.checked ? 'quad' : 'cube'); });
 }
 
 export function bindAnimationControls(viewer) {
