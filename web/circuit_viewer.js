@@ -292,9 +292,12 @@ export class CircuitViewer {
     setupEventHandlers() {
         window.addEventListener('resize', () => this.resize());
         
+        this.canvas.addEventListener('contextmenu', e => e.preventDefault());
+
         this.canvas.addEventListener('mousedown', e => { 
-            if (e.button !== 0) return;
+            if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
             this.isDragging = true; 
+            this.dragButton = e.button;
             this.lastMouse = { x: e.clientX, y: e.clientY }; 
         });
 
@@ -304,8 +307,15 @@ export class CircuitViewer {
             if (!this.isDragging) return;
             const dx = (e.clientX - this.lastMouse.x) * 0.001;
             const dy = (e.clientY - this.lastMouse.y) * 0.001;
-            const isRotate = e.shiftKey || this.view.rotateMode;
-            this._handleMove(-dx, -dy, isRotate);
+            
+            if (this.dragButton === 1) {
+                // Middle-click drag zooms
+                this.view.log2zoom -= dy * 5.0;
+            } else {
+                const isRotate = (this.dragButton === 2) || e.shiftKey || this.view.rotateMode;
+                this._handleMove(-dx, -dy, isRotate);
+            }
+            
             this.lastMouse = { x: e.clientX, y: e.clientY };
             this.requestFrame();
         });
@@ -313,14 +323,25 @@ export class CircuitViewer {
         this.canvas.addEventListener('wheel', e => {
             e.preventDefault();
             const dy = e.deltaY * 0.001;
-            if (e.ctrlKey) {
-                this.view.log2zoom -= dy * 10.0;
-            } else {
-                const dx = e.deltaX * 0.001;
-                this._handleMove(dx, dy, e.shiftKey);
-            }
+            // Slower scroll zoom speed (factor of 1.5 instead of 10.0)
+            this.view.log2zoom -= dy * 1.5;
             this.requestFrame();
         }, {passive: false});
+    }
+
+    panCamera(dx, dy) {
+        this._handleMove(dx, dy, false);
+        this.requestFrame();
+    }
+
+    rotateCamera(dx, dy) {
+        this._handleMove(dx, dy, true);
+        this.requestFrame();
+    }
+
+    zoomCamera(amount) {
+        this.view.log2zoom += amount;
+        this.requestFrame();
     }
 
     resetView() {
