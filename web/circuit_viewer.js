@@ -322,27 +322,27 @@ export class CircuitViewer {
 
         this.canvas.addEventListener('wheel', e => {
             e.preventDefault();
+
+            const dx = e.deltaX * 0.001;
             const dy = e.deltaY * 0.001;
-            // Slower scroll zoom speed (factor of 1.5 instead of 10.0)
-            this.view.log2zoom -= dy * 1.5;
+
+            // 1. Cmd + swipe/scroll -> Pan camera in 2D space
+            if (e.metaKey) {
+                this._handleMove(dx || 0, dy, false);
+            }
+            // 2. Shift + swipe/scroll -> Rotate camera
+            else if (e.shiftKey) {
+                this._handleMove(dx || 0, dy, true);
+            }
+            // 3. Regular scroll/swipe (or trackpad pinch-to-zoom where e.ctrlKey === true) -> Zoom camera
+            else {
+                const zoomSpeed = e.ctrlKey ? 10.0 : 1.5;
+                this.view.log2zoom -= dy * zoomSpeed;
+            }
             this.requestFrame();
         }, {passive: false});
     }
 
-    panCamera(dx, dy) {
-        this._handleMove(dx, dy, false);
-        this.requestFrame();
-    }
-
-    rotateCamera(dx, dy) {
-        this._handleMove(dx, dy, true);
-        this.requestFrame();
-    }
-
-    zoomCamera(amount) {
-        this.view.log2zoom += amount;
-        this.requestFrame();
-    }
 
     resetView() {
         if (!this.isLoaded) return;
@@ -381,8 +381,8 @@ export class CircuitViewer {
 
     _handleMove(dx, dy, isRotate) {
         if (isRotate) {
-            this.view.pan -= dx;
-            this.view.tilt -= dy;
+            this.view.pan -= dx * 2.0;
+            this.view.tilt -= dy * 2.0;
         } else {
             const speed = Math.pow(2.0, -this.view.log2zoom) / this.view.baseScale;
             const s = Math.sin(-this.view.pan), c = Math.cos(this.view.pan);

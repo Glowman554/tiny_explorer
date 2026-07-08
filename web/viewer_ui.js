@@ -373,56 +373,28 @@ export function bindKeyboardHotkeys(viewer) {
         const btnPlayAnim = document.getElementById('btnPlayAnim');
 
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-            if (document.activeElement === treeSelect && treeSelect && treeSelect.options.length > 0) {
-                const dir = e.key === 'ArrowDown' ? 1 : -1;
+            const dir = e.key === 'ArrowDown' ? 1 : -1;
+            if (treeSelect && treeSelect.options.length > 0) {
                 e.preventDefault();
                 treeSelect.selectedIndex = Math.max(0, Math.min(treeSelect.selectedIndex + dir, treeSelect.options.length - 1));
                 syncTreeSelection(viewer);
-                return;
             }
         }
         
         // Don't trigger hotkeys if the user is typing in a field
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
 
-        const key = e.key.toLowerCase();
-
-        // Camera Pan
-        if (e.key === 'ArrowUp' || key === 'w') {
-            e.preventDefault();
-            viewer.panCamera(0, -0.05);
-        } else if (e.key === 'ArrowDown' || key === 's') {
-            e.preventDefault();
-            viewer.panCamera(0, 0.05);
-        } else if (e.key === 'ArrowLeft' || key === 'a') {
-            e.preventDefault();
-            viewer.panCamera(-0.05, 0);
-        } else if (e.key === 'ArrowRight' || key === 'd') {
-            e.preventDefault();
-            viewer.panCamera(0.05, 0);
-        }
-
-        
-        // Camera Zoom
-        else if (e.key === '+' || e.key === '=') {
-            e.preventDefault();
-            viewer.zoomCamera(0.1);
-        } else if (e.key === '-') {
-            e.preventDefault();
-            viewer.zoomCamera(-0.1);
-        }
-
-        else if (key === 'c') {
+        if (e.key.toLowerCase() === 'c') {
             const clkWire = viewer.wireNames.find(w => /^clk$/i.test(w.name));
             if (clkWire) {
                 viewer.toggleWire(clkWire.id);
             }
         }
-        else if (e.key === ' ') {
+        if (e.key === ' ') {
             e.preventDefault();
             viewer.stepCircuit();
         }
-        else if (key === 'p') {
+        if (e.key.toLowerCase() === 'p') {
             if (btnPlayAnim) btnPlayAnim.click();
         }
     });
