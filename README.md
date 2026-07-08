@@ -1,6 +1,5 @@
 # Tiny Tapeout Explorer
 
-## Project Objective
 Tiny Tapeout Explorer is an interactive web-based visualization tool for exploring integrated circuit designs from the Tiny Tapeout community. It features:
 
 - **WASM-Powered Engine:** C++ Manhattan-optimized layout parser and circuit extractor running natively in the browser.
@@ -69,3 +68,9 @@ Once `explorer.wasm` is built, serve the repository root using any static local 
 python3 -m http.server 8000
 ```
 Then open `http://localhost:8000/viewer.html` or `http://localhost:8000/index.html` in your web browser.
+
+## AI Use Disclosure
+
+This project made extensive use of agentic coding assistants throughout its development cycle. Much of the web interface (`web/` components, reactive UI logic, and HTML/CSS styling) was "vibe-coded".
+
+Conversely, the core C++ layout parsing engine, hierarchical extraction algorithms, switch-level simulator data structures in `src/` were either directly hand-written or crafted under rigorous manual supervision and architectural verification.
