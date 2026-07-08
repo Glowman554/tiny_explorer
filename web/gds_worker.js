@@ -15,6 +15,62 @@ function log(msg) {
     postMessage({ type: 'log', message: msg });
 }
 
+function progress(msg) {
+    postMessage({ type: 'progress', message: msg });
+}
+
+async function fetchWithProgress(url, label = "GDS") {
+    progress(`Fetching ${label}...`);
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status} fetching ${url}`);
+    }
+
+    const contentLength = response.headers.get('content-length');
+    const total = contentLength ? parseInt(contentLength, 10) : 0;
+
+    if (!response.body || !response.body.getReader) {
+        return new Uint8Array(await response.arrayBuffer());
+    }
+
+    const reader = response.body.getReader();
+    const chunks = [];
+    let received = 0;
+    let lastReport = performance.now();
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+
+        const now = performance.now();
+        if (now - lastReport > 100) {
+            lastReport = now;
+            if (total > 0) {
+                const percent = Math.round((received / total) * 100);
+                progress(`Fetching ${label}: ${percent}% (${(received / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MB)`);
+            } else {
+                progress(`Fetching ${label}: ${(received / 1024 / 1024).toFixed(1)} MB downloaded...`);
+            }
+        }
+    }
+
+    if (total > 0) {
+        progress(`Fetching ${label}: 100% (${(received / 1024 / 1024).toFixed(1)} MB)`);
+    } else {
+        progress(`Fetched ${label}: ${(received / 1024 / 1024).toFixed(1)} MB`);
+    }
+
+    const result = new Uint8Array(received);
+    let offset = 0;
+    for (const chunk of chunks) {
+        result.set(chunk, offset);
+        offset += chunk.length;
+    }
+    return result;
+}
+
 let clkNetId = -1;
 let simRunning = false;
 let simSpeed = 0;
@@ -70,19 +126,20 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
 
         // 1. Fetch and decompress data
         const startTime = performance.now();
-        const response = await fetch(gdsUrl);
+        const rawBytes = await fetchWithProgress(gdsUrl, isBrotli ? "Brotli GDS" : (isGzip ? "Gzipped GDS" : "GDS"));
         let data;
 
         if (isGzip) {
-            const stream = response.body.pipeThrough(new DecompressionStream('gzip'));
+            progress("Decompressing GZip layout...");
+            const stream = new Response(rawBytes).body.pipeThrough(new DecompressionStream('gzip'));
             data = new Uint8Array(await new Response(stream).arrayBuffer());
         } else if (isBrotli) {
-            const compressed = new Uint8Array(await response.arrayBuffer());
+            progress("Decompressing Brotli layout...");
             const brotli = new DecompressStream();
-            const result = brotli.decompress(compressed, 200 * 1024 * 1024); // max 200MB
+            const result = brotli.decompress(rawBytes, 200 * 1024 * 1024); // max 200MB
             data = result.buf;
         } else {
-            data = new Uint8Array(await response.arrayBuffer());
+            data = rawBytes;
         }
 
         const totalBytes = data.length;
@@ -105,6 +162,7 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
         const wasi = new WASI(["explorer"], [], fds);
 
         // 3. Initialize WASM
+        progress("Initializing WASM engine...");
         const wasmResponse = await fetch('explorer.wasm');
         const wasmBuffer = await wasmResponse.arrayBuffer();
         const { instance: wasmInstance } = await WebAssembly.instantiate(wasmBuffer, {
@@ -116,6 +174,7 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
         if (instance.exports.wasm_arena_init) instance.exports.wasm_arena_init(1); // Enable Arena Mode (1 = Arena, 0 = Heap)
 
         // 4. GDSTK Load phase
+        progress("Parsing layout with GDSTK...");
         const loadStart = performance.now();
         const pathPtr = allocString(virtPath, instance);
         const pdkPtr = allocString(pdk || "", instance);
@@ -126,6 +185,7 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
         const loadTime = performance.now() - loadStart;
 
         // 5. Processing phase
+        progress("Extracting circuit topology & hierarchy...");
         const procStart = performance.now();
 
         instance.exports.wasm_process();

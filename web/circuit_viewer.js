@@ -583,6 +583,8 @@ export class CircuitViewer {
             const data = e.data;
             if (data.type === "log") {
                 this.log(data.message);
+            } else if (data.type === "progress") {
+                this.onProgress?.(data.message);
             } else if (data.type === "error") {
                 this.log("ERROR: " + data.message);
                 this.onProgress?.("Error: " + data.message);
