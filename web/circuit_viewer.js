@@ -590,6 +590,16 @@ export class CircuitViewer {
                 this.onProgress?.("Error: " + data.message);
             } else if (data.type === "done") {
                 this.processParsedData(data.stats, data.wireNames);
+                const socPanel = document.getElementById('socTtPanel');
+                if (socPanel) socPanel.classList.toggle('hidden', !data.hasSocTt);
+            } else if (data.type === 'uart') {
+                const output = document.getElementById('uartOutput');
+                if (output) { output.value = data.text; output.scrollTop = output.scrollHeight; }
+            } else if (data.type === 'flash_loaded') {
+                const status = document.getElementById('flashLoadStatus');
+                if (status) status.textContent = `Loaded ${data.count} bytes at address 0x000000.`;
+            } else if (data.type === 'peripheral_log') {
+                this.log(data.message);
             } else if (data.type === "callResult") {
                 if (data.wireData) {
                     this.updateNetStatesFromWireData(data.wireData, data.isSettled);

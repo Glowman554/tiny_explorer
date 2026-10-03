@@ -12,13 +12,13 @@ pub fn build(b: *std.Build) void {
         }),
     });
     
-    exe.addIncludePath(b.path("src"));
-    exe.addIncludePath(b.path("vendor/gdstk/include"));
-    exe.addIncludePath(b.path("vendor/gdstk/external"));
-    exe.addIncludePath(b.path("vendor/miniz"));
-    exe.addIncludePath(b.path("src/qhull_stub"));
+    exe.root_module.addIncludePath(b.path("src"));
+    exe.root_module.addIncludePath(b.path("vendor/gdstk/include"));
+    exe.root_module.addIncludePath(b.path("vendor/gdstk/external"));
+    exe.root_module.addIncludePath(b.path("vendor/miniz"));
+    exe.root_module.addIncludePath(b.path("src/qhull_stub"));
 
-    exe.addCSourceFiles(.{
+    exe.root_module.addCSourceFiles(.{
         .files = &.{
             "src/main.cpp",
             "src/wasm_allocator.cpp",
@@ -46,18 +46,18 @@ pub fn build(b: *std.Build) void {
         "vendor/gdstk/src/utils.cpp",
         "vendor/gdstk/external/clipper/clipper.cpp",
     };
-    exe.addCSourceFiles(.{
+    exe.root_module.addCSourceFiles(.{
         .files = gdstk_src,
         .flags = &.{ "-std=c++17", "-fno-rtti", "-DGDSTK_NO_PYTHON", "-DGDSTK_CUSTOM_ALLOCATOR", "-fno-sanitize=alignment" },
     });
 
     // Miniz Source Files
-    exe.addCSourceFiles(.{ 
+    exe.root_module.addCSourceFiles(.{ 
         .files = &.{ "vendor/miniz/miniz.c" },
     });
 
-    exe.linkLibC();
-    exe.linkLibCpp();
+    exe.root_module.link_libc = true;
+    exe.root_module.link_libcpp = true;
 
     if (target.result.cpu.arch.isWasm()) {
         exe.entry = .disabled;
@@ -70,9 +70,10 @@ pub fn build(b: *std.Build) void {
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+
+//    if (b.args) |args| {
+//        run_cmd.addArgs(args);
+//    }
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 }

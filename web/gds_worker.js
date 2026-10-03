@@ -78,6 +78,8 @@ let autoClock = false;
 let lastSimUpdate = 0;
 let lastClkVal = 0;
 let pendingVgaTick = false;
+let pendingPeripheralClockTick = false;
+const tt = { ids: new Map(), flash: new Uint8Array(16 * 1024 * 1024), psram: new Uint8Array(16 * 1024 * 1024), uart: '', prevSclk: 0, prevFlashCs: 1, prevRamCs: 1, spi: null, uartState: 'idle', uartCount: 0, uartBit: 0, uartByte: 0, inputFlash: 1 };
 
 const files = new Map();
 
@@ -242,11 +244,16 @@ async function runGdsTask(gdsUrl, pdk, options = {}) {
         clkNetId = -1;
         lastClkVal = 0;
         pendingVgaTick = false;
+        pendingPeripheralClockTick = false;
         wireNames.forEach(w => {
             if (/^clk$/i.test(w.name)) clkNetId = w.id;
+            const m = w.name.match(/^(ui_in|uo_out|uio_in|uio_out)(?:\[(\d+)\])?$/i);
+            if (m) tt.ids.set(`${m[1].toLowerCase()}${m[2] === undefined ? '' : `[${m[2]}]`}`, w.id);
         });
+        tt.flash.fill(0xff); tt.psram.fill(0); tt.uart = ''; tt.spi = null; tt.uartState = 'idle';
+        tt.prevSclk = 0; tt.prevFlashCs = 1; tt.prevRamCs = 1; tt.inputFlash = 1;
 
-        postMessage({ type: 'done', stats, file: gdsUrl, pdk, wireNames }, transferables);
+        postMessage({ type: 'done', stats, file: gdsUrl, pdk, wireNames, hasSocTt: tt.ids.has('uio_out[0]') && tt.ids.has('uo_out[0]') }, transferables);
 
     } catch (err) {
         postMessage({ type: 'error', file: gdsUrl, message: err.message });
@@ -304,6 +311,11 @@ onmessage = function(e) {
                 sendSimUpdate(true); // Final sync when stopping
             }
         }
+    } else if (e.data.type === 'flash_hex') {
+        const bytes = String(e.data.text || '').trim().split(/\s+/).filter(Boolean).map(token => parseInt(token.replace(/^0x/i, ''), 16));
+        tt.flash.fill(0xff);
+        for (let i = 0; i < Math.min(bytes.length, tt.flash.length); i++) tt.flash[i] = bytes[i];
+        postMessage({ type: 'flash_loaded', count: Math.min(bytes.length, tt.flash.length) });
     } else if (e.data.type === 'ack_request') {
         postMessage({ type: 'ack_response' });
     }
@@ -336,6 +348,58 @@ function checkClockEdge() {
     }
     lastClkVal = clkVal;
     return edgeDetected;
+}
+
+function pin(name, fallback = 1) { const id = tt.ids.get(name); return id === undefined ? fallback : getNetValue(id); }
+function setPin(name, value) { const id = tt.ids.get(name); if (id !== undefined) instance.exports.wasm_circuit_set_input(id, value); }
+function tickTinyTapeoutPeripherals(clockRising = false) {
+    if (!tt.ids.size) return;
+    const cs = pin('uio_out[0]'), ramA = pin('uio_out[6]'), ramB = pin('uio_out[7]');
+    const sclk = pin('uio_out[3]'), mosi = pin('uio_out[1]');
+    const selected = cs === 0 ? 'flash' : ramA === 0 ? 'psram_a' : ramB === 0 ? 'psram_b' : null;
+    const wasSelected = tt.prevFlashCs === 0 ? 'flash' : tt.prevRamCs === 0 ? (tt.spi?.device || 'psram_a') : null;
+    if (selected !== wasSelected) {
+        if (tt.spi && (tt.spi.command === 2 || tt.spi.command === 3 || tt.spi.command === 0x0b)) {
+            const op = tt.spi.command === 2 ? 'write' : 'read';
+            const label = tt.spi.device === 'flash' ? 'FLASH' : `PSRAM ${tt.spi.device.slice(-1).toUpperCase()}`;
+            const preview = tt.spi.preview?.length ? ` data=${tt.spi.preview.map(byte => byte.toString(16).padStart(2, '0')).join(' ')}` : '';
+            postMessage({ type: 'peripheral_log', message: `[${label}] ${op} ${tt.spi.byteCount || 0} byte(s) at 0x${(tt.spi.startAddress || 0).toString(16).padStart(6, '0')}${preview}\n` });
+        }
+        if (!selected && tt.spi) setPin('uio_in[2]', 1);
+        tt.spi = selected ? { device: selected, bits: 0, shift: 0, command: 0, address: 0, startAddress: 0, byteCount: 0, outBit: 0, readByte: 0, preview: [], dataStarted: false } : null;
+    }
+    if (tt.spi && sclk && !tt.prevSclk) {
+        const p = tt.spi; p.shift = ((p.shift << 1) | mosi) & 255; p.bits++;
+        if (p.bits === 8) {
+            if (!p.command) p.command = p.shift;
+            else if (!p.dataStarted) { p.address = ((p.address << 8) | p.shift) >>> 0; if (p.bitsTotal === undefined) p.bitsTotal = 0; p.bitsTotal += 8; if (p.bitsTotal === 24) { p.dataStarted = true; p.startAddress = p.address; } }
+            else if (p.command === 2) { const mem = p.device === 'flash' ? tt.flash : tt.psram; const offset = p.device === 'psram_b' ? 8 * 1024 * 1024 : 0; const index = p.device === 'flash' ? p.address % mem.length : offset + (p.address % (8 * 1024 * 1024)); mem[index] = p.shift; if (p.preview.length < 8) p.preview.push(p.shift); p.address++; p.byteCount++; }
+            p.bits = 0; p.shift = 0;
+        }
+    }
+    // The SPI chips update MISO on falling SCLK, so it is stable for the next rising edge.
+    if (tt.spi && !sclk && tt.prevSclk) {
+        const p = tt.spi; let bit = 1;
+        if (p.dataStarted && (p.command === 3 || p.command === 0x0b)) {
+            const mem = p.device === 'flash' ? tt.flash : tt.psram;
+            const offset = p.device === 'psram_b' ? 8 * 1024 * 1024 : 0;
+            const index = p.device === 'flash' ? p.address % mem.length : offset + (p.address % (8 * 1024 * 1024));
+            const out = mem[index];
+            bit = (out >> (7 - p.outBit)) & 1;
+            p.readByte = (p.readByte << 1) | bit;
+            if (++p.outBit === 8) { p.outBit = 0; if (p.preview.length < 8) p.preview.push(p.readByte); p.readByte = 0; p.address++; p.byteCount++; }
+        }
+        setPin('uio_in[2]', bit);
+    }
+    tt.prevSclk = sclk; tt.prevFlashCs = cs; tt.prevRamCs = ramA && ramB ? 1 : 0;
+    if (!clockRising) return;
+    const tx = pin('uo_out[0]');
+    if (tt.uartState === 'idle') { if (tx === 0) { tt.uartState = 'start'; tt.uartCount = 116; tt.uartBit = 0; tt.uartByte = 0; } }
+    else if (--tt.uartCount <= 0) {
+        if (tt.uartState === 'start') { if (tx === 0) { tt.uartState = 'data'; tt.uartCount = 233; } else tt.uartState = 'idle'; }
+        else if (tt.uartState === 'data') { tt.uartByte |= tx << tt.uartBit++; tt.uartCount = 233; if (tt.uartBit === 8) tt.uartState = 'stop'; }
+        else { if (tx) { tt.uart += String.fromCharCode(tt.uartByte); postMessage({ type: 'uart', text: tt.uart }); } tt.uartState = 'idle'; }
+    }
 }
 
 function sendSimUpdate(forceWireData = false) {
@@ -415,6 +479,8 @@ function simLoop() {
         if (!isSettled) {
             instance.exports.wasm_circuit_run_wave();
             if (instance.exports.wasm_circuit_is_settled()) {
+                tickTinyTapeoutPeripherals(pendingPeripheralClockTick);
+                pendingPeripheralClockTick = false;
                 if (pendingVgaTick) {
                     if (instance.exports.wasm_vga_tick) instance.exports.wasm_vga_tick(1);
                     pendingVgaTick = false;
@@ -425,7 +491,10 @@ function simLoop() {
         } else if (autoClock && clkNetId !== -1) {
             const val = getNetValue(clkNetId);
             instance.exports.wasm_circuit_set_input(clkNetId, val ? 0 : 1);
-            if (checkClockEdge()) pendingVgaTick = true;
+            if (checkClockEdge()) {
+                pendingVgaTick = true;
+                pendingPeripheralClockTick = true;
+            }
             
             // If it settled instantly (no logic depth or no feedback)
             if (instance.exports.wasm_circuit_is_settled() && pendingVgaTick) {

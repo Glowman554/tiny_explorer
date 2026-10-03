@@ -484,6 +484,15 @@
                     </div>
                 </div>
             </div>
+            <div id="socTtPanel" class="monitor-controls-group hidden">
+                <label>Inferno TT peripherals</label>
+                <label for="flashHexInput">SPI flash bytes (8 bit hex, whitespace separated)</label>
+                <textarea id="flashHexInput" rows="5" placeholder="17 01 00 41 13 01 01 00" style="width:100%; box-sizing:border-box; font-family:var(--font-mono); resize:vertical;"></textarea>
+                <button id="loadFlashHex" class="btn-full">Load SPI flash</button>
+                <div id="flashLoadStatus" class="waiting-text"></div>
+                <label for="uartOutput" class="mt-4">UART output (divider 233)</label>
+                <textarea id="uartOutput" rows="5" readonly style="width:100%; box-sizing:border-box; font-family:var(--font-mono); resize:vertical;"></textarea>
+            </div>
         </div>
         <div id="circuitMonitorContent" class="panel-content" style="padding: 4px 12px 10px 12px;">
             <div class="waiting-text">Waiting for netlist...</div>

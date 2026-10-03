@@ -18,6 +18,16 @@ const on = (id, evt, fn) => {
 export function initViewerUI(viewer) {
     const loading = $('loading');
 
+    on('loadFlashHex', 'onclick', () => {
+        const input = $('flashHexInput');
+        const status = $('flashLoadStatus');
+        if (!input || !viewer.worker) return;
+        const tokens = input.value.trim().split(/\s+/).filter(Boolean);
+        const valid = tokens.every(token => /^(?:0x)?[0-9a-fA-F]{2}$/.test(token));
+        if (!valid) { if (status) status.textContent = 'Use two-digit hex bytes separated by spaces or newlines.'; return; }
+        viewer.worker.postMessage({ type: 'flash_hex', text: input.value });
+    });
+
     // MARK: Panel Management
     const updatePanel = (btnId, panelId, visible) => {
         const btn = $(btnId);
